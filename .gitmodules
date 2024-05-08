@@ -1,3 +1,6 @@
 [submodule "lib/mmaction2"]
 	path = lib/mmaction2
 	url = https://github.com/jinhasong/mmaction2
+[submodule "lib/server-analysis-module"]
+	path = lib/server-analysis-module
+	url = https://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@github.com/JinhaSong/server-analysis-module
