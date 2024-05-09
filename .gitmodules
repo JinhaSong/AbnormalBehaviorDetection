@@ -1,3 +1,12 @@
 [submodule "lib/mmaction2"]
 	path = lib/mmaction2
 	url = https://github.com/jinhasong/mmaction2
+[submodule "lib/yolo/yolov7"]
+	path = lib/yolo/yolov7
+	url = https://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@github.com/JinhaSong/yolov7.git
+[submodule "lib/yolo/yolov8"]
+	path = lib/yolo/yolov8
+	url = https://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@github.com/JinhaSong/yolov8.git
+[submodule "lib/yolo/yolov9"]
+	path = lib/yolo/yolov9
+	url = https://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@github.com/JinhaSong/yolov9.git
