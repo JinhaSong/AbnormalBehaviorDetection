@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+    table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    table, th, td {
+        border: 1px solid black;
+    }
+    th, td {
+        padding: 8px;
+        text-align: center;
+    }
+    th {
+        background-color: #f2f2f2;
+    }
+    </style>
+</head>
+<body>
+<table id="modelTable">
+    <thead>
+        <tr>
+            <th onclick="sortTable(0)">#</th>
+            <th onclick="sortTable(1)">Model</th>
+            <th onclick="sortTable(2, 'num')">Test Size</th>
+            <th onclick="sortTable(3, 'num')">AP<sup>val</sup></th>
+            <th onclick="sortTable(4, 'num')">AP<sub>50</sub><sup>val</sup></th>
+            <th onclick="sortTable(5, 'num')">AP<sub>75</sub><sup>val</sup></th>
+            <th onclick="sortTable(6, 'num')">Param.</th>
+            <th onclick="sortTable(7, 'num')">FLOPs</th>
+            <th onclick="sortTable(7, 'num')">FPS<sub>RTX3090</sub></th>
+            <th onclick="sortTable(8, 'num')">FPS<sub>RTX3090</sub><sup>batch</sup></th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td>01</td>
+            <td>YOLOv7-tiny</td>
+            <td>640</td>
+            <td>38.7</td>
+            <td>56.7</td>
+            <td>41.7</td>
+            <td>6.2M</td>
+            <td>13.8G</td>
+            <td></td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>02</td>
+            <td>YOLOv7</td>
+            <td>640</td>
+            <td>51.4</td>
+            <td>69.7</td>
+            <td>55.9</td>
+            <td>36.9M</td>
+            <td>104.7G</td>
+            <td></td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>03</td>
+            <td>YOLOv7x</td>
+            <td>640</td>
+            <td>54.9</td>
+            <td>71.2</td>
+            <td>57.8</td>
+            <td>71.3M</td>
+            <td>189.9G</td>
+            <td></td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>04</td>
+            <td>YOLOv7-W6</td>
+            <td>1280</td>
+            <td>56.0</td>
+            <td>72.6</td>
+            <td>60.1</td>
+            <td>70.4M</td>
+            <td>360.0G</td>
+            <td></td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>05</td>
+            <td>YOLOv7-E6</td>
+            <td>1280</td>
+            <td>56.0</td>
+            <td>73.5</td>
+            <td>61.2</td>
+            <td>97.2M</td>
+            <td>515.2G</td>
+            <td></td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>06</td>
+            <td>YOLOv7-D6</td>
+            <td>1280</td>
+            <td>56.6</td>
+            <td>74.0</td>
+            <td>61.8</td>
+            <td>154.7M</td>
+            <td>806.8G</td>
+            <td></td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>07</td>
+            <td>YOLOv7-E6E</td>
+            <td>1280</td>
+            <td>56.8</td>
+            <td>74.4</td>
+            <td>62.1</td>
+            <td>151.7M</td>
+            <td>843.2G</td>
+            <td></td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>08</td>
+            <td>YOLOv8n</td>
+            <td>640</td>
+            <td>-</td>
+            <td>37.3</td>
+            <td>-</td>
+            <td>3.2M</td>
+            <td>8.7G</td>
+            <td></td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>09</td>
+            <td>YOLOv8s</td>
+            <td>640</td>
+            <td>-</td>
+            <td>44.9</td>
+            <td>-</td>
+            <td>11.2M</td>
+            <td>28.6G</td>
+            <td></td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>10</td>
+            <td>YOLOv8m</td>
+            <td>640</td>
+            <td>-</td>
+            <td>50.2</td>
+            <td>-</td>
+            <td>25.9M</td>
+            <td>78.9G</td>
+            <td></td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>11</td>
+            <td>YOLOv8l</td>
+            <td>640</td>
+            <td>-</td>
+            <td>52.9</td>
+            <td>-</td>
+            <td>43.7M</td>
+            <td>165.2G</td>
+            <td></td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>12</td>
+            <td>YOLOv8x</td>
+            <td>640</td>
+            <td>-</td>
+            <td>53.9</td>
+            <td>-</td>
+            <td>68.2M</td>
+            <td>257.8G</td>
+            <td></td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>13</td>
+            <td>YOLOv9-T</td>
+            <td>640</td>
+            <td>38.3</td>
+            <td>53.1</td>
+            <td>41.3</td>
+            <td>2.0M</td>
+            <td>7.7G</td>
+            <td></td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>14</td>
+            <td>YOLOv9-S</td>
+            <td>640</td>
+            <td>46.8</td>
+            <td>63.4</td>
+            <td>50.7</td>
+            <td>7.1M</td>
+            <td>26.4G</td>
+            <td></td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>15</td>
+            <td>YOLOv9-M</td>
+            <td>640</td>
+            <td>51.4</td>
+            <td>68.1</td>
+            <td>56.1</td>
+            <td>20.0M</td>
+            <td>76.3G</td>
+            <td></td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>16</td>
+            <td>YOLOv9-C</td>
+            <td>640</td>
+            <td>53.0</td>
+            <td>70.2</td>
+            <td>57.8</td>
+            <td>25.3M</td>
+            <td>102.1G</td>
+            <td></td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>17</td>
+            <td>YOLOv9-E</td>
+            <td>640</td>
+            <td>55.6</td>
+            <td>72.8</td>
+            <td>60.6</td>
+            <td>57.3M</td>
+            <td>189.0G</td>
+            <td></td>
+            <td></td>
+        </tr>
+    </tbody>
+</table>
+
+<script>
+function sortTable(columnIndex, type = 'text') {
+  var table, rows, switching, i, x, y, shouldSwitch, dir, switchcount = 0;
+  table = document.getElementById("modelTable");
+  switching = true;
+  dir = "asc";
+  while (switching) {
+    switching = false;
+    rows = table.rows;
+    for (i = 1; i < (rows.length - 1); i++) {
+      shouldSwitch = false;
+      x = rows[i].getElementsByTagName("TD")[columnIndex];
+      y = rows[i + 1].getElementsByTagName("TD")[columnIndex];
+      let xContent = type === 'num' ? parseFloat(x.innerHTML.toLowerCase().replace(/[^\d.-]/g, '')) : x.innerHTML.toLowerCase();
+      let yContent = type === 'num' ? parseFloat(y.innerHTML.toLowerCase().replace(/[^\d.-]/g, '')) : y.innerHTML.toLowerCase();
+      if (dir == "asc") {
+        if (xContent > yContent) {
+          shouldSwitch = true;
+          break;
+        }
+      } else if (dir == "desc") {
+        if (xContent < yContent) {
+          shouldSwitch = true;
+          break;
+        }
+      }
+    }
+    if (shouldSwitch) {
+      rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+      switching = true;
+      switchcount++;
+    } else {
+      if (switchcount == 0 && dir == "asc") {
+        dir = "desc";
+        switching = true;
+      }
+    }
+  }
+}
+</script>
+
+</body>
+</html>
