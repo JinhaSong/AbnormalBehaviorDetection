@@ -1,0 +1,113 @@
+version: '2.3'
+
+services:
+  main:
+    container_name: abd-dev
+    build:
+      context: ./
+      dockerfile: docker/dev/dockerfile
+    runtime: nvidia
+    restart: always
+    ipc: "host"
+    env_file:
+      - "docker/main/env.env"
+    expose:
+      - 8000
+      - 22
+    volumes:
+      - ${PWD}:/workspace
+    ports:
+      - "10000:8000"
+      - "10022:22"
+
+    stdin_open: true
+    tty: true
+    environment:
+      TZ: Asia/Seoul
+  mmaction2:
+    container_name: abd-mmaction2
+    build:
+      context: ./
+      dockerfile: docker/mmaction2/dockerfile
+    runtime: nvidia
+    restart: always
+    ipc: "host"
+    env_file:
+      - "docker/mmaction2/env.env"
+    expose:
+      - 8000
+      - 22
+    volumes:
+      - ${PWD}/lib/mmaction2:/worksapce
+    ports:
+      - "10000:8000"
+      - "10022:22"
+
+    stdin_open: true
+    tty: true
+    environment:
+      TZ: Asia/Seoul
+  yolov7:
+    container_name: abd-yolov7
+    build:
+      context: ./
+      dockerfile: docker/yolo/yolov7/dockerfile
+    env_file:
+      - "docker/yolo/yolov7/env.env"
+    runtime: nvidia
+    restart: always
+    ipc: "host"
+    volumes:
+      - ${PWD}/lib/yolo/yolov7:/worksapce
+    stdin_open: true
+    tty: true
+  yolov8:
+    container_name: abd-yolov8
+    build:
+      context: ./
+      dockerfile: docker/yolo/yolov8/dockerfile
+    env_file:
+      - "docker/yolo/yolov8/env.env"
+    runtime: nvidia
+    restart: always
+    ipc: "host"
+    volumes:
+      - ${PWD}/lib/yolo/yolov8:/worksapce
+    stdin_open: true
+    tty: true
+  yolov9:
+    container_name: abd-yolov9
+    build:
+      context: ./
+      dockerfile: docker/yolo/yolov9/dockerfile
+    env_file:
+      - "docker/yolo/yolov9/env.env"
+    runtime: nvidia
+    restart: always
+    ipc: "host"
+    volumes:
+      - ${PWD}/lib/yolo/yolov9:/worksapce
+    stdin_open: true
+    tty: true
+  alphapose:
+    container_name: abd-alphapose
+    build:
+      context: ./
+      dockerfile: docker/pose/alphapose/dockerfile
+    env_file:
+      - "docker/pose/alphapose/env.env"
+    runtime: nvidia
+    restart: always
+    ipc: "host"
+    volumes:
+      - ${PWD}/lib/pose/alphapose:/worksapce
+    stdin_open: true
+    tty: true
+
+
+volumes:
+  data:
+    driver: local
+    driver_opts:
+      type: none
+      device: /DATA

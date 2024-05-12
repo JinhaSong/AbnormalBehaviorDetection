@@ -1,0 +1,15 @@
+omegaconf
+tqdm
+easydict
+git+https://github.com/wbaek/theconf.git@v0.1.6
+einops
+filterpy==1.4.5
+similaritymeasures==0.4.4
+lap==0.4.0
+PyYaml==5.4
+ruamel.yaml==0.17.21
+dtaidistance==2.3.9
+requests==2.18.4
+pandas==1.4.3
+seaborn==0.11.2
+pika
