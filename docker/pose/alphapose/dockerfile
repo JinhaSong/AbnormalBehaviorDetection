@@ -6,8 +6,13 @@ RUN apt-get update && apt-get -y install \
     libgl1 \
     tzdata git wget ssh vim
 
+RUN ln -sf /usr/share/zoneinfo/Asia/Seoul /etc/localtime
+RUN ln -s /usr/bin/python3 /usr/bin/python
+RUN echo "root:password" | chpasswd
+RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes #prohibit-password/' /etc/ssh/sshd_config
+
+RUN pip3 install --upgrade pip
+RUN pip3 install setuptools
+
 WORKDIR /workspace
-
 RUN mv /root/alphapose/* /workspace/alphapose
-
-#RUN pip3 install -r docker/main/requirements.txt
