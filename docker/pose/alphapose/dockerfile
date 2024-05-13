@@ -15,4 +15,5 @@ RUN pip3 install --upgrade pip
 RUN pip3 install setuptools
 
 WORKDIR /workspace
+RUN mkdir /workspace/alphapose
 RUN mv /root/alphapose/* /workspace/alphapose
