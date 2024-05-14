@@ -10,7 +10,7 @@ services:
     restart: always
     ipc: "host"
     env_file:
-      - "docker/main/env.env"
+      - "docker/dev/env.env"
     expose:
       - 8000
       - 22
