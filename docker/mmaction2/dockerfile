@@ -7,6 +7,10 @@ FROM pytorch/pytorch:${PYTORCH}-cuda${CUDA}-cudnn${CUDNN}-devel
 ENV TORCH_CUDA_ARCH_LIST="6.0 6.1 7.0+PTX"
 ENV TORCH_NVCC_FLAGS="-Xfatbin -compress-all"
 ENV CMAKE_PREFIX_PATH="$(dirname $(which conda))/../"
+ENV TZ Asia/Seoul
+ENV LC_ALL=C.UTF-8
+ENV LANG=C.UTF-8
+ARG DEBIAN_FRONTEND=noninteractive
 
 RUN rm /etc/apt/sources.list.d/cuda.list
 RUN rm /etc/apt/sources.list.d/nvidia-ml.list
@@ -29,7 +33,6 @@ RUN pip install mmcv-full==1.7.2 -f https://download.openmmlab.com/mmcv/dist/cu1
 # Install MMAction2
 RUN conda clean --all
 WORKDIR /workspace
-ADD . .
 RUN mkdir -p /workspace/data
 ENV FORCE_CUDA="1"
 RUN pip install cython --no-cache-dir
