@@ -1,7 +1,7 @@
 version: '2.3'
 
 services:
-  main:
+  dev:
     container_name: abd-dev
     build:
       context: ./
@@ -16,10 +16,10 @@ services:
       - 22
     volumes:
       - ${PWD}:/workspace
+      - dataset:/dataset
     ports:
-      - "10000:8000"
-      - "10022:22"
-
+      - "8000:8000"
+      - "8022:22"
     stdin_open: true
     tty: true
     environment:
@@ -39,10 +39,10 @@ services:
       - 22
     volumes:
       - ${PWD}/lib/mmaction2:/worksapce
+      - dataset:/dataset
     ports:
-      - "10000:8000"
-      - "10022:22"
-
+      - "9000:8000"
+      - "9022:22"
     stdin_open: true
     tty: true
     environment:
@@ -59,6 +59,7 @@ services:
     ipc: "host"
     volumes:
       - ${PWD}/lib/yolo/yolov7:/worksapce
+      - dataset:/dataset
     stdin_open: true
     tty: true
   yolov8:
@@ -73,6 +74,7 @@ services:
     ipc: "host"
     volumes:
       - ${PWD}/lib/yolo/yolov8:/worksapce
+      - dataset:/dataset
     stdin_open: true
     tty: true
   yolov9:
@@ -87,6 +89,7 @@ services:
     ipc: "host"
     volumes:
       - ${PWD}/lib/yolo/yolov9:/worksapce
+      - dataset:/dataset
     stdin_open: true
     tty: true
   alphapose:
@@ -101,12 +104,13 @@ services:
     ipc: "host"
     volumes:
       - ${PWD}/lib/pose/alphapose:/worksapce
+      - dataset:/dataset
     stdin_open: true
     tty: true
 
 
 volumes:
-  data:
+  dataset:
     driver: local
     driver_opts:
       type: none
