@@ -1,7 +1,7 @@
 # AbnormalBehaviorDetection
 
-## Environment
-* Ubuntu 20.04
+## Requirements
+* Ubuntu 22.04
 * CUDA 11.3 <=
 * Docker.ce
 * Docker-compose
