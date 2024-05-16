@@ -93,4 +93,5 @@ volumes:
     driver: local
     driver_opts:
       type: none
-      device: /DATA
+      device: /DATA/abd
+      o: bind
