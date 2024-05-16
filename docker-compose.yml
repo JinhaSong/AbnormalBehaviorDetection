@@ -32,7 +32,7 @@ services:
     env_file:
       - "docker/mmaction2/env.env"
     volumes:
-      - ${PWD}/lib/mmaction2:/worksapce
+      - ${PWD}/lib/mmaction2:/workspace
       - dataset:/dataset
     ports:
       - "9000:8000"
@@ -52,7 +52,7 @@ services:
     restart: always
     ipc: "host"
     volumes:
-      - ${PWD}/lib/yolo/yolov8:/worksapce
+      - ${PWD}/lib/yolo/yolov8:/workspace
       - dataset:/dataset
     stdin_open: true
     tty: true
@@ -83,7 +83,7 @@ services:
     restart: always
     ipc: "host"
     volumes:
-      - ${PWD}/lib/pose/alphapose:/worksapce
+      - ${PWD}/lib/pose/alphapose:/workspace
       - dataset:/dataset
     stdin_open: true
     tty: true
