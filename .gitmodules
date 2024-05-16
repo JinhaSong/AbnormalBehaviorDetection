@@ -10,3 +10,18 @@
 [submodule "lib/yolo/yolov9"]
 	path = lib/yolo/yolov9
 	url = https://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@github.com/JinhaSong/yolov9.git
+[submodule "lib/abd/violence/bnwvad"]
+	path = lib/abd/violence/bnwvad
+	url = https://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@github.com/JinhaSong/BN-WVAD
+[submodule "lib/abd/violence/urdmu"]
+	path = lib/abd/violence/urdmu
+	url = http://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@github.com/jinhasong/UR-DMU
+[submodule "lib/abd/violence/rtfm"]
+	path = lib/abd/violence/rtfm
+	url = https://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@github.com/JinhaSong/RTFM
+[submodule "lib/abd/violence/mgfn"]
+	path = lib/abd/violence/mgfn
+	url = http://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@github.com/jinhasong/mgfn
+[submodule "lib/abd/violence/pel4vad"]
+	path = lib/abd/violence/pel4vad
+	url = https://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@github.com/JinhaSong/PEL4VAD
