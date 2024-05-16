@@ -15,8 +15,8 @@ services:
       - ${PWD}:/workspace
       - dataset:/dataset
     ports:
-      - "8000:8000"
-      - "8022:22"
+      - "11000:8000"
+      - "11022:22"
     stdin_open: true
     tty: true
     environment:
@@ -35,8 +35,8 @@ services:
       - ${PWD}/lib/mmaction2:/workspace
       - dataset:/dataset
     ports:
-      - "9000:8000"
-      - "9022:22"
+      - "12000:8000"
+      - "12022:22"
     stdin_open: true
     tty: true
     environment:
