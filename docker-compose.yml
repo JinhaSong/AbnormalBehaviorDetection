@@ -11,9 +11,6 @@ services:
     ipc: "host"
     env_file:
       - "docker/dev/env.env"
-    expose:
-      - 8000
-      - 22
     volumes:
       - ${PWD}:/workspace
       - dataset:/dataset
@@ -34,9 +31,6 @@ services:
     ipc: "host"
     env_file:
       - "docker/mmaction2/env.env"
-    expose:
-      - 8000
-      - 22
     volumes:
       - ${PWD}/lib/mmaction2:/worksapce
       - dataset:/dataset
@@ -47,21 +41,6 @@ services:
     tty: true
     environment:
       TZ: Asia/Seoul
-  yolov7:
-    container_name: abd-yolov7
-    build:
-      context: ./
-      dockerfile: docker/yolo/yolov7/dockerfile
-    env_file:
-      - "docker/yolo/yolov7/env.env"
-    runtime: nvidia
-    restart: always
-    ipc: "host"
-    volumes:
-      - ${PWD}/lib/yolo/yolov7:/worksapce
-      - dataset:/dataset
-    stdin_open: true
-    tty: true
   yolov8:
     container_name: abd-yolov8
     build:
@@ -77,18 +56,19 @@ services:
       - dataset:/dataset
     stdin_open: true
     tty: true
-  yolov9:
-    container_name: abd-yolov9
+  yolor:
+    container_name: abd-yolor
     build:
       context: ./
-      dockerfile: docker/yolo/yolov9/dockerfile
+      dockerfile: docker/yolo/yolor/dockerfile
     env_file:
-      - "docker/yolo/yolov9/env.env"
+      - "docker/yolo/yolor/env.env"
     runtime: nvidia
     restart: always
     ipc: "host"
     volumes:
-      - ${PWD}/lib/yolo/yolov9:/worksapce
+      - ${PWD}/lib/yolo/yolov7:/yolov7
+      - ${PWD}/lib/yolo/yolov9:/yolov9
       - dataset:/dataset
     stdin_open: true
     tty: true
@@ -107,7 +87,6 @@ services:
       - dataset:/dataset
     stdin_open: true
     tty: true
-
 
 volumes:
   dataset:
