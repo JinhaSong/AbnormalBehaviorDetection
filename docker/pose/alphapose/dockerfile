@@ -11,7 +11,6 @@ RUN apt-get update && apt-get -y install \
     tzdata git wget ssh vim
 
 RUN ln -sf /usr/share/zoneinfo/Asia/Seoul /etc/localtime
-RUN ln -s /usr/bin/python3 /usr/bin/python
 RUN echo "root:password" | chpasswd
 RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes #prohibit-password/' /etc/ssh/sshd_config
 
