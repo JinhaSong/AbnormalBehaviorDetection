@@ -91,16 +91,16 @@ AbnormalBehaviorDetection/
 ### Abnormal Event Detection
 #### Dataset
 ##### [Violence(Assault, Fight)](https://paperswithcode.com/sota/abnormal-event-detection-in-video-on-ubi)
-| Type  |     Name     | Metric |                                      Link                                       |                 Dataset Path                 | Downloaded |
-|:-----:|:------------:|:------:|:-------------------------------------------------------------------------------:|:--------------------------------------------:|:----------:|
-| Eval  | CUHK-Avenue  |  AUC   | [link](https://www.cse.cuhk.edu.hk/leojia/projects/detectabnormal/dataset.html) | ```mlsun/nfs_shared/abd/eval/CUHK-Avenue```  |    [x]     |
-| Eval  | ShanghaiTech |  AUC   |            [link](https://github.com/desenzhou/ShanghaiTechDataset)             | ```mlsun/nfs_shared/abd/eval/ShanghaiTech``` |    [x]     |
-| Eval  |   UBnormal   |  AUC   |               [link](https://github.com/lilygeorgescu/UBnormal/)                |   ```mlsun/nfs_shared/abd/eval/UBnormal```   |    [x]     |
-| Eval  |  UCF-Crime   |  AUC   |              [link](https://paperswithcode.com/dataset/ucf-crime)               |  ```mlsun/nfs_shared/abd/eval/UCF_Crimes```  |    [x]     |
-| Train |   LAD2000    |        |         [link](https://github.com/wanboyang/anomaly_detection_LAD2000)          |      ```mlsun/nfs_shared/abd/LAD2000```      |    [x]     |
-| Train | NWPU-Campus  |        |                      [link](https://campusvad.github.io/)                       |    ```mlsun/nfs_shared/abd/NWPU_Campus```    |    [x]     |
-| Train | StreetScene  |        |    [link](https://www.merl.com/research/highlights/video-anomaly-detection)     |    ```mlsun/nfs_shared/abd/StreetScene```    |    [ ]     |
-| Eval  | XD-Violence  |   AP   |             [link](https://paperswithcode.com/dataset/xd-violence)              |   ```mldisk2/nfs_shared/abd/XD-Violence```   |    [x]     |
+| Type  |     Name     | Metric |                                      Link                                       |                 Dataset Path                 |       Downloaded        |
+|:-----:|:------------:|:------:|:-------------------------------------------------------------------------------:|:--------------------------------------------:|:-----------------------:|
+| Eval  | CUHK-Avenue  |  AUC   | [link](https://www.cse.cuhk.edu.hk/leojia/projects/detectabnormal/dataset.html) | ```mlsun/nfs_shared/abd/eval/CUHK-Avenue```  | <ul><li>[x] </li></ul>  |
+| Eval  | ShanghaiTech |  AUC   |            [link](https://github.com/desenzhou/ShanghaiTechDataset)             | ```mlsun/nfs_shared/abd/eval/ShanghaiTech``` | <ul><li>[x] </li></ul>  |
+| Eval  |   UBnormal   |  AUC   |               [link](https://github.com/lilygeorgescu/UBnormal/)                |   ```mlsun/nfs_shared/abd/eval/UBnormal```   | <ul><li>[x] </li></ul>  |
+| Eval  |  UCF-Crime   |  AUC   |              [link](https://paperswithcode.com/dataset/ucf-crime)               |  ```mlsun/nfs_shared/abd/eval/UCF_Crimes```  | <ul><li>[x] </li></ul>  |
+| Train |   LAD2000    |        |         [link](https://github.com/wanboyang/anomaly_detection_LAD2000)          |      ```mlsun/nfs_shared/abd/LAD2000```      | <ul><li>[x] </li></ul>  |
+| Train | NWPU-Campus  |        |                      [link](https://campusvad.github.io/)                       |    ```mlsun/nfs_shared/abd/NWPU_Campus```    | <ul><li>[x] </li></ul>  |
+| Train | StreetScene  |        |    [link](https://www.merl.com/research/highlights/video-anomaly-detection)     |    ```mlsun/nfs_shared/abd/StreetScene```    | <ul><li>[ ] </li></ul>  |
+| Eval  | XD-Violence  |   AP   |             [link](https://paperswithcode.com/dataset/xd-violence)              |   ```mldisk2/nfs_shared/abd/XD-Violence```   | <ul><li>[x] </li></ul>] |
 
 
 ##### Fall
