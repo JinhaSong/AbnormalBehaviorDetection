@@ -10,7 +10,7 @@ services:
     restart: always
     ipc: "host"
     env_file:
-      - "docker/dev/env.env"
+      - "docker/env.env"
     volumes:
       - ${PWD}:/workspace
       - dataset:/dataset
@@ -30,7 +30,7 @@ services:
     restart: always
     ipc: "host"
     env_file:
-      - "docker/mmaction2/env.env"
+      - "docker/env.env"
     volumes:
       - ${PWD}/lib/mmaction2:/workspace
       - dataset:/dataset
@@ -47,7 +47,7 @@ services:
       context: ./
       dockerfile: docker/yolo/yolov8/dockerfile
     env_file:
-      - "docker/yolo/yolov8/env.env"
+      - "docker/env.env"
     runtime: nvidia
     restart: always
     ipc: "host"
@@ -62,7 +62,7 @@ services:
       context: ./
       dockerfile: docker/yolo/yolor/dockerfile
     env_file:
-      - "docker/yolo/yolor/env.env"
+      - "docker/env.env"
     runtime: nvidia
     restart: always
     ipc: "host"
@@ -78,7 +78,7 @@ services:
       context: ./
       dockerfile: docker/pose/alphapose/dockerfile
     env_file:
-      - "docker/pose/alphapose/env.env"
+      - "docker/env.env"
     runtime: nvidia
     restart: always
     ipc: "host"
