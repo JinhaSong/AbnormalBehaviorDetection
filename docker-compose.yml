@@ -14,6 +14,7 @@ services:
     volumes:
       - ${PWD}:/workspace
       - dataset:/dataset
+      - mlsun:/mlsun
     ports:
       - "11000:8000"
       - "11022:22"
@@ -34,6 +35,7 @@ services:
     volumes:
       - ${PWD}/lib/mmaction2:/workspace
       - dataset:/dataset
+      - mlsun:/mlsun
     ports:
       - "12000:8000"
       - "12022:22"
@@ -54,6 +56,7 @@ services:
     volumes:
       - ${PWD}/lib/yolo/yolov8:/workspace
       - dataset:/dataset
+      - mlsun:/mlsun
     stdin_open: true
     tty: true
   yolor:
@@ -70,6 +73,7 @@ services:
       - ${PWD}/lib/yolo/yolov7:/yolov7
       - ${PWD}/lib/yolo/yolov9:/yolov9
       - dataset:/dataset
+      - mlsun:/mlsun
     stdin_open: true
     tty: true
   alphapose:
@@ -85,6 +89,7 @@ services:
     volumes:
       - ${PWD}/lib/pose/alphapose:/workspace
       - dataset:/dataset
+      - mlsun:/mlsun
     stdin_open: true
     tty: true
 
@@ -95,3 +100,8 @@ volumes:
       type: none
       device: /DATA/abd
       o: bind
+  mlsun:
+    driver_opts:
+      type: "nfs"
+      o: "addr=mlsun.sogang.ac.kr,nolock,soft,rw"
+      device: ":/volume1/nfs_shared"
