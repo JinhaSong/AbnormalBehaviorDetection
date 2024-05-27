@@ -1,4 +1,4 @@
-FROM jinhasong/alphapose:cuda-11.6
+FROM jinhasong/alphapose:cuda-11.6_abd
 
 ENV TZ Asia/Seoul
 ENV LC_ALL=C.UTF-8
