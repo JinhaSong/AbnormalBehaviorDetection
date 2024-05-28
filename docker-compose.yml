@@ -33,7 +33,7 @@ services:
     env_file:
       - "docker/env.env"
     volumes:
-      - ${PWD}/lib/mmaction2:/workspace
+      - ${PWD}:/workspace
       - dataset:/dataset
       - mlsun:/mlsun
     ports:
@@ -54,7 +54,7 @@ services:
     restart: always
     ipc: "host"
     volumes:
-      - ${PWD}/lib/yolo/yolov8:/workspace
+      - ${PWD}:/workspace
       - dataset:/dataset
       - mlsun:/mlsun
     stdin_open: true
@@ -70,8 +70,7 @@ services:
     restart: always
     ipc: "host"
     volumes:
-      - ${PWD}/lib/yolo/yolov7:/yolov7
-      - ${PWD}/lib/yolo/yolov9:/yolov9
+      - ${PWD}:/workspace
       - dataset:/dataset
       - mlsun:/mlsun
     stdin_open: true
@@ -87,7 +86,7 @@ services:
     restart: always
     ipc: "host"
     volumes:
-      - ${PWD}/lib/pose/alphapose:/workspace
+      - ${PWD}:/workspace
       - dataset:/dataset
       - mlsun:/mlsun
     stdin_open: true
