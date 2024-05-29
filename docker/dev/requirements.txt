@@ -1,1 +1,6 @@
+PyYaml==5.4
+ruamel.yaml==0.17.21
+
 filterpy==1.4.5
+
+opencv-python
