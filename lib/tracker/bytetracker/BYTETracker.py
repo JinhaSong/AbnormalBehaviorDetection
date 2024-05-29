@@ -1,34 +1,30 @@
-import numpy as np
-
-from lib.tracker import Tracker
 from lib.tracker.bytetracker.kalman_filter import KalmanFilter
 from lib.tracker.bytetracker.basetrack import TrackState
 from lib.tracker.bytetracker.utils import *
 from lib.tracker.bytetracker.STrack import STrack
 
 
-class BYTETracker(Tracker):
-    def __init__(self, params):
-        super().__init__(params)
+class BYTETracker:
+    def __init__(self, cfg):
         self.tracked_stracks = []
         self.lost_stracks = []
         self.removed_stracks = []
-        self.min_box_area = int(params["min_box_area"])
+        self.min_box_area = int(cfg["min_box_area"])
 
         self.frame_id = 0
 
-        self.score_treshold = float(params["score_threshold"])
-        self.match_thresh = float(params["match_threshold"])
-        self.track_thresh = float(params["track_threshold"])
-        self.det_thresh = float(params["track_threshold"]) + 0.1
-        self.buffer_size = int(int(params["frame_rate"]) / 30.0 * int(params["track_buffer"]))
+        self.score_threshold = float(cfg["score_threshold"])
+        self.match_thresh = float(cfg["match_threshold"])
+        self.track_thresh = float(cfg["track_threshold"])
+        self.det_thresh = float(cfg["track_threshold"]) + 0.1
+        self.buffer_size = int(int(cfg["frame_rate"]) / 30.0 * int(cfg["track_buffer"]))
         self.max_time_lost = self.buffer_size
         self.kalman_filter = KalmanFilter()
-        self.tracker_name = params["tracker_name"]
+        self.tracker_name = cfg["tracker_name"]
 
     @staticmethod
     def det_to_trk_data_conversion(detection_result):
-        detection_result = detection_result['results'][0]['detection_result']
+        # detection_result = detection_result['results'][0]['detection_result']
         boxes_tmp_list = []
         boxes_list = []
         scores_tmp_list = []
@@ -55,21 +51,20 @@ class BYTETracker(Tracker):
         return boxes_list_array, scores_list_array, classes_list_array
 
     def update(self, detection_result):
-    
-        detection_result = self.filter_object_result(detection_result, self.score_treshold)
+        detection_result = self.filter_object_result(detection_result, self.score_threshold)
         bboxes, scores, classes = self.det_to_trk_data_conversion(detection_result)
 
         output = []
         self.frame_id += 1
-        scores=scores.reshape(-1)
-        classes=classes.reshape(-1) 
+        scores = scores.reshape(-1)
+        classes = classes.reshape(-1)
 
         tracked_stracks = []
         lost_stracks = []
-        removed_stracks = [] 
+        removed_stracks = []
         unconfirmed_stracks = []
-        activated_starcks = []
-        refind_stracks = [] 
+        activated_stracks = []
+        refind_stracks = []
 
         for track in self.tracked_stracks:
             if not track.is_activated:
@@ -77,7 +72,7 @@ class BYTETracker(Tracker):
             else:
                 tracked_stracks.append(track)
         strack_pool = joint_stracks(tracked_stracks, self.lost_stracks)
-        
+
         is_human = classes == 0
         low_idxes_low_limit = 0.1 < scores
         low_idxes_high_limit = scores <= self.track_thresh
@@ -110,7 +105,7 @@ class BYTETracker(Tracker):
             matched_det_high = detections_high[det_idx]
             if matched_track_high.state == TrackState.Tracked:
                 matched_track_high.update(matched_det_high, self.frame_id)
-                activated_starcks.append(matched_track_high)
+                activated_stracks.append(matched_track_high)
             else:
                 matched_track_high.re_activate(matched_det_high, self.frame_id, new_id=False)
                 refind_stracks.append(matched_track_high)
@@ -119,7 +114,7 @@ class BYTETracker(Tracker):
             detections_low = [STrack(STrack.tlbr_to_tlwh(tlbr), s, cls) for (tlbr, s, cls) in zip(bboxes_low, scores_low, classes_low)]
         else:
             detections_low = []
-        
+
         stracks_remain = [strack_pool[idx] for idx in track_remain_idxes if strack_pool[idx].state == TrackState.Tracked]
         dists_second = matching.iou_distance(stracks_remain, detections_low)
         matches_second, track_re_remain_idxes, detection_re_remain_idxes = matching.linear_assignment(dists_second, thresh=0.5)
@@ -129,7 +124,7 @@ class BYTETracker(Tracker):
             matched_det_low = detections_low[det_idx]
             if matched_track_remain.state == TrackState.Tracked:
                 matched_track_remain.update(matched_det_low, self.frame_id)
-                activated_starcks.append(matched_track_remain)
+                activated_stracks.append(matched_track_remain)
             else:
                 matched_track_remain.re_activate(matched_det_low, self.frame_id, new_id=False)
                 refind_stracks.append(matched_track_remain)
@@ -154,7 +149,7 @@ class BYTETracker(Tracker):
             matched_track_begin = unconfirmed_stracks[track_idx]
             matched_det_begin = detections_remain[det_idx]
             matched_track_begin.update(matched_det_begin, self.frame_id)
-            activated_starcks.append(matched_track_begin)
+            activated_stracks.append(matched_track_begin)
 
         for it in u_unconfirmed:
             track = unconfirmed_stracks[it]
@@ -166,10 +161,10 @@ class BYTETracker(Tracker):
             if track.score < self.det_thresh:
                 continue
             track.activate(self.kalman_filter, self.frame_id)
-            activated_starcks.append(track)
+            activated_stracks.append(track)
 
         self.tracked_stracks = [t for t in self.tracked_stracks if t.state == TrackState.Tracked]
-        self.tracked_stracks = joint_stracks(self.tracked_stracks, activated_starcks)
+        self.tracked_stracks = joint_stracks(self.tracked_stracks, activated_stracks)
         self.tracked_stracks = joint_stracks(self.tracked_stracks, refind_stracks)
         self.lost_stracks = sub_stracks(self.lost_stracks, self.tracked_stracks)
         self.lost_stracks.extend(lost_stracks)
@@ -183,16 +178,39 @@ class BYTETracker(Tracker):
         STrack.check_overlap(self.tracked_stracks)
 
         output += self.tracked_stracks
-        output_instants = output
-        output_track_info_dict = convert_output_format_to_dict(self.tracked_stracks)
+        detection_result = self.assign_tracking_ids(detection_result, self.tracked_stracks)
 
-        return output_instants, output_track_info_dict
+        return detection_result
 
+    def filter_object_result(self, detection_result, score_threshold):
+        object_result = []
+        for obj in detection_result:
+            score = obj["label"][0]["score"]
+            if score > score_threshold:
+                object_result.append(obj)
+        detection_result = object_result
+        return detection_result
 
-def convert_output_format_to_dict(STrack_objects_list):
-    dict = {}
-    for STrack in STrack_objects_list:
-        track_id = STrack.track_id
-        track_tlbr = STrack.tlbr
-        dict[track_id] = track_tlbr
-    return dict
+    def assign_tracking_ids(self, detection_result, tracked_stracks):
+        """
+        Assign tracking IDs to detection results.
+
+        :param detection_result: List of detection results.
+        :param tracked_stracks: List of tracked STrack objects.
+        :return: List of detection results with assigned tracking IDs.
+        """
+        for det in detection_result:
+            det_bbox = det['position']
+            det_x1, det_y1 = int(det_bbox['x']), int(det_bbox['y'])
+            det_x2, det_y2 = int(det_bbox['x'] + det_bbox['w']), int(det_bbox['y'] + det_bbox['h'])
+
+            for track in tracked_stracks:
+                track_bbox = track.tlbr
+                track_x1, track_y1, track_x2, track_y2 = int(track_bbox[0]), int(track_bbox[1]), int(
+                    track_bbox[2]), int(track_bbox[3])
+
+                if det_x1 == track_x1 and det_y1 == track_y1 and det_x2 == track_x2 and det_y2 == track_y2:
+                    det['tracking_id'] = track.track_id
+                    break
+
+        return detection_result
