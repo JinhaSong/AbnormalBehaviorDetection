@@ -1,0 +1,7 @@
+pose_estimation:
+  model_name: alphapose
+  model_config: /workspace/lib/pose/alphapose/alphapose/configs/coco/resnet/256x192_res50_lr1e-3_1x.yaml
+  model_path: /workspace/weights/alphapose/fast_res50_256x192.pth
+  dataset: coco
+  is_batch: false
+  batch_size: 1
