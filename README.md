@@ -6,12 +6,21 @@
 * Docker.ce
 * Docker-compose
 
+## Dataset Information
+* [docs/dataset.md](docs/dataset.md)
+
 ## Installation
 ```shell
 git clone --recursive https://github/jinhasong/AbnormalBehaviorDetection.git
 cd AbnormalBehaviorDetection
 docker-compose up -d
 ```
+
+## Preprocessing
+```shell
+
+```
+
 ## Training
 ```shell
 
@@ -90,7 +99,7 @@ AbnormalBehaviorDetection/
 
 ### Abnormal Event Detection
 #### Dataset
-##### [Violence(Assault, Fight)](https://paperswithcode.com/sota/abnormal-event-detection-in-video-on-ubi)
+##### [Video Anomaly Detection(VAD)](https://paperswithcode.com/sota/abnormal-event-detection-in-video-on-ubi)
 | Type  |     Name     | Metric |                                      Link                                       |                 Dataset Path                 |       Downloaded        |
 |:-----:|:------------:|:------:|:-------------------------------------------------------------------------------:|:--------------------------------------------:|:-----------------------:|
 | Eval  | CUHK-Avenue  |  AUC   | [Link](https://www.cse.cuhk.edu.hk/leojia/projects/detectabnormal/dataset.html) | ```mlsun/nfs_shared/abd/eval/CUHK-Avenue```  | <ul><li>[x] </li></ul>  |
