@@ -70,9 +70,9 @@ if __name__ == '__main__':
     opt = parser.parse_known_args()[0]
 
     device = opt.device
-    det_cfg = load_cfg(opt.det_cfg)["object_detection"]
-    pose_cfg = load_cfg(opt.pose_cfg)["pose_estimation"]
-    track_cfg = load_cfg(opt.track_cfg)["bytetrack"]
+    det_cfg = load_cfg(opt.det_cfg)["infer"]
+    pose_cfg = load_cfg(opt.pose_cfg)["infer"]
+    track_cfg = load_cfg(opt.track_cfg)["infer"]
     dataset_dir = opt.dataset_dir
     dataset = opt.dataset
 

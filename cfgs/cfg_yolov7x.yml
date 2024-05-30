@@ -1,4 +1,4 @@
-object_detection:
+infer:
   model_name: yolov7x
   model_path: /workspace/weights/yolo/yolov7x-obstacle15.pt
   dataset: obstacle-15

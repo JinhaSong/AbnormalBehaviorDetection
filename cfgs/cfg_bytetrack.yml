@@ -1,4 +1,4 @@
-bytetrack:
+infer:
   tracker_name: byte_tracker
   score_threshold: 0.1
   track_threshold: 0.5
