@@ -50,6 +50,34 @@ class BYTETracker:
 
         return boxes_list_array, scores_list_array, classes_list_array
 
+    @staticmethod
+    def convert_output_format_to_dict(STrack_objects_list):
+        result_list = []
+        for STrack_obj in STrack_objects_list:
+            track_id = STrack_obj.track_id
+            x, y, w, h = STrack_obj.tlwh
+            score = STrack_obj.score
+            cls = STrack_obj.cls
+            str_class = "person"  # Assuming 'person' class, update if necessary
+
+            detection = {
+                'label': [{
+                    'description': str_class,
+                    'score': score,
+                    'class_idx': cls
+                }],
+                'tracking_id': track_id,
+                'position': {
+                    'x': float(x),
+                    'y': float(y),
+                    'w': float(w),
+                    'h': float(h)
+                }
+            }
+            result_list.append(detection)
+        return result_list
+
+
     def update(self, detection_result):
         detection_result = self.filter_object_result(detection_result, self.score_threshold)
         bboxes, scores, classes = self.det_to_trk_data_conversion(detection_result)
@@ -178,9 +206,10 @@ class BYTETracker:
         STrack.check_overlap(self.tracked_stracks)
 
         output += self.tracked_stracks
-        detection_result = self.assign_tracking_ids(detection_result, self.tracked_stracks)
+        output_track_info_dict = self.convert_output_format_to_dict(self.tracked_stracks)
 
-        return detection_result
+        return output_track_info_dict
+
 
     def filter_object_result(self, detection_result, score_threshold):
         object_result = []
@@ -191,26 +220,3 @@ class BYTETracker:
         detection_result = object_result
         return detection_result
 
-    def assign_tracking_ids(self, detection_result, tracked_stracks):
-        """
-        Assign tracking IDs to detection results.
-
-        :param detection_result: List of detection results.
-        :param tracked_stracks: List of tracked STrack objects.
-        :return: List of detection results with assigned tracking IDs.
-        """
-        for det in detection_result:
-            det_bbox = det['position']
-            det_x1, det_y1 = int(det_bbox['x']), int(det_bbox['y'])
-            det_x2, det_y2 = int(det_bbox['x'] + det_bbox['w']), int(det_bbox['y'] + det_bbox['h'])
-
-            for track in tracked_stracks:
-                track_bbox = track.tlbr
-                track_x1, track_y1, track_x2, track_y2 = int(track_bbox[0]), int(track_bbox[1]), int(
-                    track_bbox[2]), int(track_bbox[3])
-
-                if det_x1 == track_x1 and det_y1 == track_y1 and det_x2 == track_x2 and det_y2 == track_y2:
-                    det['tracking_id'] = track.track_id
-                    break
-
-        return detection_result
