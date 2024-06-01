@@ -2,7 +2,7 @@ infer:
   tracker_name: byte_tracker
   score_threshold: 0.1
   track_threshold: 0.5
-  track_buffer: 30
+  track_buffer: 90
   match_threshold: 0.8
   min_box_area: 10
-  frame_rate: 10
+  frame_rate: 30
