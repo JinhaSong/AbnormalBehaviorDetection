@@ -44,11 +44,11 @@ class AlphaPose:
             train=False, add_dpg=False, gpu_device=self.device)
 
     def process(self, image, result):
-        array_scores, array_boxes, array_ids, final_result, person_num = self.reformat_od_result(result)
+        array_scores, array_boxes, array_ids, final_result, person_num, person_ids = self.reformat_od_result(result)
         pose = None
         if len(array_scores) > 0:
             orig_img = self.image_preprocess(image)
-            inps, orig_img, boxes, scores, ids, cropped_boxes, final_result = self.preprocess_od_result(orig_img, array_scores, array_boxes, array_ids, final_result)
+            inps, orig_img, boxes, scores, ids, cropped_boxes, final_result, person_ids = self.preprocess_od_result(orig_img, array_scores, array_boxes, array_ids, final_result, person_ids)
             with torch.no_grad():
                 if orig_img is None or inps is None:
                     return final_result, pose
@@ -56,7 +56,7 @@ class AlphaPose:
                     inps = inps.to(self.device)
                     hm = self.pose_model(inps)
                     hm = hm.cpu()
-                    final_result, pose = self.reformat_pe_result(boxes, scores, ids, hm, cropped_boxes, orig_img, final_result)
+                    final_result, pose = self.reformat_pe_result(boxes, scores, ids, hm, cropped_boxes, orig_img, final_result, person_ids)
             return final_result, pose, person_num  # , pose
         else:
             return final_result, pose, person_num
@@ -113,6 +113,7 @@ class AlphaPose:
         array_scores = []
         array_ids = []
         persons = []
+        person_ids = []
 
         person_num = 0
         for obj in result:
@@ -124,8 +125,9 @@ class AlphaPose:
                 final_result.append(obj)
 
         for person in persons:
-            score = person['label'][0]['score'] / 100
+            score = person['label'][0]['score']
             position = person['position']
+            person_id = person['tracking_id']
             x = position['x'] - 10
             y = position['y'] - 10
             w = position['w'] + 10
@@ -134,10 +136,11 @@ class AlphaPose:
             array_scores.append(score)
             array_boxes.append([x, y, x + w, y + h])
             array_ids.append(0.)
+            person_ids.append(person_id)
 
-        return array_scores, array_boxes, array_ids, final_result, person_num
+        return array_scores, array_boxes, array_ids, final_result, person_num, person_ids
 
-    def preprocess_od_result(self, orig_img, array_scores, array_boxes, array_ids,final_result):
+    def preprocess_od_result(self, orig_img, array_scores, array_boxes, array_ids,final_result, person_ids):
         scores = torch.Tensor(np.array(array_scores))
         boxes = torch.Tensor(np.array(array_boxes))
         ids = torch.Tensor(np.array(array_ids))
@@ -147,9 +150,9 @@ class AlphaPose:
 
         inps, orig_img, boxes, scores, ids, cropped_boxes = self.image_postprocess(self.transformation, orig_img, boxes, scores, ids, inps, cropped_boxes)
 
-        return inps, orig_img, boxes, scores, ids, cropped_boxes, final_result
+        return inps, orig_img, boxes, scores, ids, cropped_boxes, final_result, person_ids
 
-    def reformat_pe_result(self, boxes, scores, ids, hm_data, cropped_boxes, orig_img, final_result):
+    def reformat_pe_result(self, boxes, scores, ids, hm_data, cropped_boxes, orig_img, final_result, person_ids):
         hm_size = self.cfg.DATA_PRESET.HEATMAP_SIZE
 
         if orig_img is None:
@@ -207,6 +210,7 @@ class AlphaPose:
                         "class_idx": 0,
                         "score": float(scores[p]) * 100
                     }],
+                    "tracking_id": person_ids[p],
                     "position": {
                         "x": boxes[p][0],
                         "y": boxes[p][1],
