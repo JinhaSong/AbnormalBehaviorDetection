@@ -34,7 +34,15 @@ def parse_dataset_dir(dataset_dir, dataset):
             "test": None,
             "test_frames": None
         }
-
+    elif dataset == "ubnormal":
+        videos_dir = os.path.join(dataset_dir, "videos")
+        frames_dir = os.path.join(dataset_dir, "frames")
+        return {
+            "train": videos_dir,
+            "train_frames": frames_dir,
+            "test": None,
+            "test_frames": None
+        }
     else:
         raise ValueError(f"Unsupported dataset: {dataset}")
 
@@ -60,6 +68,11 @@ def parse_video_list(dataset_dir, dataset, dataset_type):
 
     elif dataset == "ucf":
         videos_dir = os.path.join(dataset_dir, "Videos")
+
+    elif dataset == "ubnormal":
+        if dataset_type != "train":
+            raise ValueError(f"UBnormal dataset only supports 'train' dataset type")
+        videos_dir = os.path.join(dataset_dir, "videos")
     else:
         raise ValueError(f"Unsupported dataset: {dataset}")
 
