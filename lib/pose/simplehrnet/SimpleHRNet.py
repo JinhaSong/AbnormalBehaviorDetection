@@ -97,6 +97,15 @@ class SimpleHRNet:
         else:
             raise ValueError('Wrong image format.')
 
+    @staticmethod
+    def correct_coordinates(image, x1, y1, x2, y2):
+        h, w = image.shape[:2]
+        x1 = np.clip(x1, 0, w)
+        x2 = np.clip(x2, 0, w)
+        y1 = np.clip(y1, 0, h)
+        y2 = np.clip(y2, 0, h)
+        return x1, y1, x2, y2
+
     def _predict_single(self, image, detections, prob_thresh):
         if not self.multiperson:
             old_res = image.shape
@@ -125,6 +134,7 @@ class SimpleHRNet:
                     x2 = int(round(detection["position"]["x"] + detection["position"]["w"]))
                     y1 = int(round(detection["position"]["y"]))
                     y2 = int(round(detection["position"]["y"] + detection["position"]["h"]))
+                    x1, y1, x2, y2 = self.correct_coordinates(image, x1, y1, x2, y2)
 
                     # Adapt detections to match HRNet input aspect ratio (as suggested by xtyDoge in issue #14)
                     correction_factor = self.resolution[0] / self.resolution[1] * (x2 - x1) / (y2 - y1)
@@ -140,6 +150,7 @@ class SimpleHRNet:
                         length = int(round((x2 - x1) * 1 / correction_factor))
                         x1 = max(0, center - length // 2)
                         x2 = min(image.shape[1], center + length // 2)
+
 
                     boxes[i] = [x1, y1, x2, y2]
                     images[i] = self.transform(image[y1:y2, x1:x2, ::-1])
@@ -259,6 +270,7 @@ class SimpleHRNet:
                         x2 = int(round(x2.item()))
                         y1 = int(round(y1.item()))
                         y2 = int(round(y2.item()))
+                        x1, y1, x2, y2 = self.correct_coordinates(image, x1, y1, x2, y2)
 
                         # Adapt detections to match HRNet input aspect ratio (as suggested by xtyDoge in issue #14)
                         correction_factor = self.resolution[0] / self.resolution[1] * (x2 - x1) / (y2 - y1)
@@ -276,6 +288,7 @@ class SimpleHRNet:
                             x2 = min(image.shape[1], center + length // 2)
 
                         boxes[base_index + i] = [x1, y1, x2, y2]
+
                         images_tensor[base_index + i] = self.transform(image[y1:y2, x1:x2, ::-1])
 
                     base_index += len(detections)
