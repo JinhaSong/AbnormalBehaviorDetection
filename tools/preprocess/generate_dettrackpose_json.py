@@ -121,14 +121,15 @@ if __name__ == '__main__':
 
     data_paths = parse_dataset_dir(dataset_dir=dataset_dir, dataset=dataset)
 
-    det_model = YOLOv7(det_cfg, device)
-    print(f"Object detection model({det_cfg['model_name']}) is loaded.")
     if pose_cfg["model_name"] == "alphapose":
         pose_model = AlphaPose(pose_cfg, device)
     else:
         pose_model = SimpleHRNetWrapper(pose_cfg, device)
-
     print(f"Pose estimation model({pose_cfg['model_name']}) is loaded.")
+
+    det_model = YOLOv7(det_cfg, device)
+    print(f"Object detection model({det_cfg['model_name']}) is loaded.")
+
 
     for dataset_type in ["train", "test"]:
         video_dir = data_paths.get(dataset_type)
