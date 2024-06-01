@@ -1,0 +1,7 @@
+infer:
+  model_name: simplehrnet
+  model_path: /workspace/weights/simplehrnet/simplehrnet.pth
+  hrnet_c: 48
+  hrnet_j: 17
+  is_batch: false
+  batch_size: 1
