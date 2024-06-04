@@ -2,12 +2,13 @@
 
 |   Dataset    | # of Class | # of testing video | # of training video | # of testing video frames | # of training video frames |
 |:------------:|:----------:|:------------------:|:-------------------:|:-------------------------:|:--------------------------:|
-| CUHK Avenue  |            |         21         |         16          |          15,324           |           15328            |
+| CUHK Avenue  |            |         21         |         16          |          15,324           |           15,328           |
 | ShanghaiTech |            |        107         |         330         |          40,791           |          274,515           |
 |  UCF-Crime   |     16     |         -          |        1950         |             -             |         13,768,423         |
-|   UBnormal   |            |                    |                     |                           |                            |
+|   UBnormal   |     2      |         -          |         251         |             -             |          236,902           |
 
 * __UCF-Crime classes__: Abuse, Arrest, Arson, Assault, Burglary, Explosion, Fighting, Normal_Videos_event, RoadAccidents, Robbery, Shooting, Shoplifting, Stealing, Testing_Normal_Videos_Anomaly, Training_Normal_Videos_Anomaly, Vandalism
+* __UBnormal__: normal, abnormal
 
 ## CUHK-Avenue
 
@@ -163,3 +164,71 @@ CUHK_Avenue/
 </details>
 
 ## UBnormal
+
+<details><summary> <b>Expand</b> </summary>
+
+```shell
+/dataset/UBnormal/
+├── videos/
+│   ├── Scene1
+│   ├── Scene2
+│   ├── Scene3
+│   ├── Scene4
+│   ├── Scene5
+│   ├── Scene6
+│   ├── Scene7
+│   ├── Scene8
+│   ├── Scene9
+│   ├── Scene10
+│   ├── Scene11
+│   ├── Scene12
+│   ├── Scene13
+│   ├── Scene14
+│   ├── Scene15
+│   ├── Scene16
+│   ├── Scene17
+│   ├── Scene18
+│   ├── Scene19
+│   ├── Scene20
+│   ├── Scene21
+│   ├── Scene22
+│   ├── Scene23
+│   ├── Scene24
+│   ├── Scene25
+│   ├── Scene26
+│   ├── Scene27
+│   ├── Scene28
+│   └── Scene29
+├── annotations/
+│   ├── Scene1
+│   ├── Scene2
+│   ├── Scene3
+│   ├── Scene4
+│   ├── Scene5
+│   ├── Scene6
+│   ├── Scene7
+│   ├── Scene8
+│   ├── Scene9
+│   ├── Scene10
+│   ├── Scene11
+│   ├── Scene12
+│   ├── Scene13
+│   ├── Scene14
+│   ├── Scene15
+│   ├── Scene16
+│   ├── Scene17
+│   ├── Scene18
+│   ├── Scene19
+│   ├── Scene20
+│   ├── Scene21
+│   ├── Scene22
+│   ├── Scene23
+│   ├── Scene24
+│   ├── Scene25
+│   ├── Scene26
+│   ├── Scene27
+│   ├── Scene28
+│   └── Scene29
+└── frames/
+```
+</details>
