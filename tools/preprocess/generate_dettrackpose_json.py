@@ -2,6 +2,7 @@ import os
 import sys
 import cv2
 import json
+import shutil
 import argparse
 import numpy as np
 from tqdm import tqdm
@@ -16,7 +17,9 @@ from lib.pose.alphapose.pose import AlphaPose
 from lib.pose.simplehrnet.main import SimpleHRNetWrapper
 from lib.tracker.bytetracker.BYTETracker import BYTETracker
 
+
 vis = Visualization()
+
 
 def find_and_convert_int_values(data):
     """
@@ -32,6 +35,7 @@ def find_and_convert_int_values(data):
     elif isinstance(data, (np.float64, np.float32)):
         return float(data)
     return data
+
 
 def save_results(frame, frame_output_dir, frame_name, pose_object_result, video_name, frame_number):
     os.makedirs(frame_output_dir, exist_ok=True)
@@ -90,9 +94,54 @@ def extract_and_process_frames(video_path, output_dir, frame_prefix, det_model, 
             count += 1
             pbar.update(1)
 
-        # Process any remaining frames
         if frames:
             process_frames(frames, output_dir, det_model, track_model, pose_model, frame_prefix, count - len(frames))
+
+
+def process_existing_frames(frames_dir, output_dir, det_model, track_model, pose_model, video_name, batch_size):
+    frame_paths = sorted([os.path.join(frames_dir, fname) for fname in os.listdir(frames_dir) if fname.endswith('.jpg')])
+    frames = [cv2.imread(frame_path) for frame_path in frame_paths]
+    total_frames = len(frames)
+
+    with tqdm(total=total_frames, desc=f"Processing frames from {frames_dir}") as pbar:
+        for i in range(0, total_frames, batch_size):
+            batch_frames = frames[i:i + batch_size]
+            process_frames(batch_frames, output_dir, det_model, track_model, pose_model, video_name, i)
+            pbar.update(len(batch_frames))
+
+    original_frames_dir = str(frames_dir).replace("frames", 'original_frames')
+    os.makedirs(original_frames_dir, exist_ok=True)
+    for frame_path in frame_paths:
+        shutil.move(frame_path, os.path.join(original_frames_dir, os.path.basename(frame_path)))
+
+
+def process_data(dataset_dir, dataset, data_paths, det_model, pose_model, track_cfg, batch_size):
+    for dtype in ["train", "test"]:
+        video_dir = str(data_paths.get(dtype))
+        frame_dir = str(data_paths.get(f"{dtype}_frames"))
+        lock_file_path = os.path.join(dataset_dir, "lock")
+        if os.path.exists(lock_file_path):
+            print(f"Skipping processing for {dataset} dataset as it is already processed.")
+        else:
+            if frame_dir:
+                video_list = sorted(os.listdir(frame_dir))
+                for video_name in tqdm(video_list, desc=f"Processing {dtype} videos"):
+                    track_model = BYTETracker(track_cfg)
+                    video_output_dir = os.path.join(frame_dir, video_name)
+                    process_existing_frames(video_output_dir, video_output_dir, det_model, track_model, pose_model, video_name, batch_size)
+
+
+            elif video_dir:
+                video_list = parse_video_list(dataset_dir, dataset, dtype)
+                for video_path in tqdm(video_list, desc=f"Processing {dtype} videos"):
+                    track_model = BYTETracker(track_cfg)
+                    video_name = video_path.stem
+                    video_output_dir = os.path.join(frame_dir, video_name)
+                    extract_and_process_frames(video_path, video_output_dir, video_name, det_model, track_model, pose_model, batch_size)
+
+
+            with open(lock_file_path, 'w') as lock_file:
+                lock_file.write('')
 
 
 if __name__ == '__main__':
@@ -105,7 +154,7 @@ if __name__ == '__main__':
     parser.add_argument("--track-cfg", type=str, default="cfgs/cfg_bytetrack.yml",
                         help="Path of object tracking parameter")
     parser.add_argument("--dataset-dir", required=True, help="Path to the dataset directory")
-    parser.add_argument("--dataset", choices=["cuhk", "shanghaitech", "ubnormal", "ucf"], required=True,
+    parser.add_argument("--dataset", choices=["cuhk", "shanghaitech", "ubnormal"], required=True,
                         help="Type of the dataset")
     parser.add_argument("--batch-size", type=int, default=1, help="Batch size for processing frames")
 
@@ -130,15 +179,4 @@ if __name__ == '__main__':
     det_model = YOLOv7(det_cfg, device)
     print(f"Object detection model({det_cfg['model_name']}) is loaded.")
 
-
-    for dataset_type in ["train", "test"]:
-        video_dir = data_paths.get(dataset_type)
-        frame_dir = data_paths.get(f"{dataset_type}_frames")
-
-        if video_dir and frame_dir:
-            video_list = parse_video_list(dataset_dir, dataset, dataset_type)
-            for video_path in tqdm(video_list, desc=f"Processing {dataset_type} videos"):
-                track_model = BYTETracker(track_cfg)
-                video_name = video_path.stem
-                video_output_dir = os.path.join(frame_dir, video_name)
-                extract_and_process_frames(video_path, video_output_dir, video_name, det_model, track_model, pose_model, batch_size)
+    process_data(dataset_dir, dataset, data_paths, det_model, pose_model, track_cfg, batch_size)
