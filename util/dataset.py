@@ -18,11 +18,12 @@ def parse_dataset_dir(dataset_dir, dataset):
     elif dataset == "shanghaitech":
         training_videos_dir = os.path.join(dataset_dir, "training", "videos")
         training_frames_dir = os.path.join(dataset_dir, "training", "frames")
+        testing_frames_dir = os.path.join(dataset_dir, "testing", "frames")
         return {
             "train": training_videos_dir,
             "train_frames": training_frames_dir,
             "test": None,
-            "test_frames": None
+            "test_frames": testing_frames_dir
         }
 
     elif dataset == "ucf":
@@ -62,7 +63,7 @@ def parse_video_list(dataset_dir, dataset, dataset_type):
         if dataset_type == "train":
             videos_dir = os.path.join(dataset_dir, "training", "videos")
         elif dataset_type == "test":
-            raise ValueError(f"ShanghaiTech dataset does not have test videos in the given structure")
+            videos_dir = os.path.join(dataset_dir, "training", "frames")
         else:
             raise ValueError(f"Unsupported dataset type: {dataset_type}")
 
