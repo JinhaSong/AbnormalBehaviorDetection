@@ -1,6 +1,6 @@
 # torch==1.13.1+cu117
 # torch vision==0.14.1+cu117
-torchmetrics==0.7.0
+torchmetrics==1.4.0.post0
 pytorch-lightning==2.2.5
 h5py==3.11.0
 PyYaml==5.4
@@ -8,3 +8,6 @@ ruamel.yaml==0.17.21
 filterpy==1.4.5
 opencv-python
 
+# logging
+wandb==0.17.1
+tensorboardX==2.6.2.2

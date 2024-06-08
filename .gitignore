@@ -161,3 +161,4 @@ cython_debug/
 lib/pose/alphapose/alphapose
 *.pth
 *.pt
+test.py
