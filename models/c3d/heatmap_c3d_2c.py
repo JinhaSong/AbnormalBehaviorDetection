@@ -23,9 +23,9 @@ class BasicBlock3D(nn.Module):
         out = nn.functional.relu(out)
         return out
 
-class HeatmapC3D(nn.Module):
+class HeatmapC3D_2C(nn.Module):
     def __init__(self, T):
-        super(HeatmapC3D, self).__init__()
+        super(HeatmapC3D_2C, self).__init__()
         self.in_planes = 64
         self.conv1 = nn.Conv3d(2, 64, kernel_size=3, stride=1, padding=1)
         self.bn1 = nn.BatchNorm3d(64)
@@ -54,5 +54,5 @@ class HeatmapC3D(nn.Module):
         return out
 
 
-def create_heatmap_c3d_model(T):
-    return HeatmapC3D(T)
+def create_heatmap_c3d_2c_model(T):
+    return HeatmapC3D_2C(T)
