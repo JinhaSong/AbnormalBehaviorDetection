@@ -5,7 +5,7 @@ from torch.utils.data import Dataset, default_collate
 from torchvision.transforms import Compose, ToTensor, Normalize
 
 
-class HDF5ShanghaiTechDataset(Dataset):
+class HDF5Dataset(Dataset):
     def __init__(self, h5_file, transform=None):
         super().__init__()
         self.h5_file = h5_file
@@ -31,6 +31,34 @@ class HDF5ShanghaiTechDataset(Dataset):
         label = torch.tensor(label, dtype=torch.float32)
 
         return video_data, label
+
+
+class HDF5TripletDataset(Dataset):
+    def __init__(self, h5_file, transform=None):
+        super().__init__()
+        self.h5_file = h5_file
+        self.transform = transform
+        self.triplet_keys = []
+        with h5py.File(self.h5_file, 'r') as file:
+            self.triplet_keys = list(file.keys())
+
+    def __len__(self):
+        return len(self.triplet_keys)
+
+    def __getitem__(self, idx):
+        with h5py.File(self.h5_file, 'r') as file:
+            group = file[self.triplet_keys[idx]]
+            anchor = group['anchor'][()]
+            positive = group['positive'][()]
+            negative = group['negative'][()]
+
+        if self.transform:
+            anchor = self.transform(torch.tensor(anchor, dtype=torch.float32))
+            positive = self.transform(torch.tensor(positive, dtype=torch.float32))
+            negative = self.transform(torch.tensor(negative, dtype=torch.float32))
+
+        return anchor, positive, negative
+
 
 def get_transform():
     return Compose([
