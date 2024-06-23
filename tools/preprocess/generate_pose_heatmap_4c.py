@@ -11,14 +11,12 @@ import csv
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from util.heatmap import GeneratePoseTarget
 
-
 def save_heatmap_as_jpg(heatmap, output_path):
     plt.figure(figsize=(10, 10))
     plt.imshow(heatmap, cmap='jet', alpha=1)
     plt.axis('off')
     plt.savefig(output_path, bbox_inches='tight', pad_inches=0)
     plt.close()
-
 
 def generate_individual_heatmap(image, keypoints, bbox, skeleton, pose_target_generator, margin=10):
     img_h, img_w = image.shape[:2]
@@ -47,7 +45,6 @@ def generate_individual_heatmap(image, keypoints, bbox, skeleton, pose_target_ge
 
     return joint_and_limb_heatmap
 
-
 def generate_heatmap(input_directory, output_directory, max_human_objects):
     pose_target_generator = GeneratePoseTarget(sigma=2.0)
 
@@ -62,6 +59,7 @@ def generate_heatmap(input_directory, output_directory, max_human_objects):
 
     video_lengths = []
     resolutions = []
+    num_objects_list = []
 
     for json_path in tqdm(json_files, desc="Processing JSON files"):
         file = os.path.basename(json_path)
@@ -115,8 +113,9 @@ def generate_heatmap(input_directory, output_directory, max_human_objects):
 
         video_lengths.append(len(pose_results))
         resolutions.append((img_h, img_w))
+        num_objects_list.append(len(pose_results))
 
-    return video_lengths, resolutions
+    return video_lengths, resolutions, num_objects_list
 
 def main():
     parser = argparse.ArgumentParser(description="Process video frames to generate pose heatmaps.")
@@ -130,21 +129,24 @@ def main():
 
     all_video_lengths = []
     all_resolutions = []
+    all_num_objects = []
 
     for dataset_type in ["train", "test"]:
-        video_lengths, resolutions = generate_heatmap(
+        video_lengths, resolutions, num_objects_list = generate_heatmap(
             os.path.join(args.input_dir, dataset_type),
             os.path.join(args.output_dir, dataset_type),
             args.max_human_objects
         )
         all_video_lengths.extend(video_lengths)
         all_resolutions.extend(resolutions)
+        all_num_objects.extend(num_objects_list)
 
-        with open(os.path.join(args.output_dir, f'{dataset_type}_video_lengths.csv'), 'w', newline='') as csvfile:
+        with open(os.path.join(args.output_dir, f'{dataset_type}.csv'), 'w', newline='') as csvfile:
             csvwriter = csv.writer(csvfile)
-            csvwriter.writerow(['Video', 'Length (frames)', 'Resolution (H, W)'])
-            for i, (length, resolution) in enumerate(zip(video_lengths, resolutions)):
-                csvwriter.writerow([f'video_{i}', length, resolution])
+            csvwriter.writerow(['Video', 'Length (frames)', 'Length (seconds)', 'Resolution (H, W)', 'Number of objects'])
+            for i, (length, resolution, num_objects) in enumerate(zip(video_lengths, resolutions, num_objects_list)):
+                length_seconds = length / 30.0  # Assuming 30 FPS
+                csvwriter.writerow([f'video_{i}', length, length_seconds, resolution, num_objects])
 
     total_frames = sum(all_video_lengths)
     avg_video_length = total_frames / len(all_video_lengths) if all_video_lengths else 0
