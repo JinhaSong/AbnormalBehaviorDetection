@@ -53,66 +53,73 @@ def generate_heatmap(input_directory, output_directory, max_human_objects):
         [6, 8], [7, 9], [8, 10], [1, 2], [0, 1], [0, 2], [1, 3], [2, 4], [0, 5], [0, 6]
     ]
 
-    json_files = sorted([os.path.join(root, file)
-                         for root, _, files in os.walk(input_directory)
-                         for file in files if file.endswith('.json')])
-
     video_lengths = []
     resolutions = []
     num_objects_list = []
 
-    for json_path in tqdm(json_files, desc="Processing JSON files"):
-        file = os.path.basename(json_path)
-        image_path = os.path.join(os.path.dirname(json_path), file.replace('.json', '.jpg'))
+    for video_folder in sorted(os.listdir(input_directory)):
+        video_folder_path = os.path.join(input_directory, video_folder)
+        if not os.path.isdir(video_folder_path):
+            continue
 
+        json_files = sorted([os.path.join(video_folder_path, file)
+                             for file in os.listdir(video_folder_path) if file.endswith('.json')])
+
+        if not json_files:
+            continue
+
+        num_frames = len(json_files)
+        video_lengths.append(num_frames)
+
+        image_path = json_files[0].replace('.json', '.jpg')
         image = cv2.imread(image_path)
         if image is None:
-            print(f"Image file not found for {file}, skipping...")
+            print(f"Image file not found for {image_path}, skipping...")
             continue
 
         img_h, img_w = image.shape[:2]
-
-        with open(json_path, 'r') as f:
-            json_data = json.load(f)
-
-        pose_results = json_data['result']
-        keypoints = []
-        bboxes = []
-        for person in pose_results:
-            kp = [(float(p['x']), float(p['y'])) for p in person['pose'].values()]
-            bbox = person['position']['x'], person['position']['y'], person['position']['w'], person['position']['h']
-            keypoints.append(kp)
-            bboxes.append(bbox)
-
-        combined_heatmaps = np.zeros((max_human_objects, img_h, img_w), dtype=np.float32)
-
-        for i, (kp, bbox) in enumerate(zip(keypoints, bboxes)):
-            if i >= max_human_objects:
-                break
-            kp = np.array(kp)
-            individual_heatmap = generate_individual_heatmap(image, kp, bbox, skeleton, pose_target_generator)
-            combined_heatmaps[i] = individual_heatmap
-
-        resized_heatmaps = np.zeros((32, 224, 224), dtype=np.float32)
-        for i in range(min(max_human_objects, 32)):
-            resized_heatmaps[i] = cv2.resize(combined_heatmaps[i], (224, 224))
-
-        for i in range(min(max_human_objects, 32), 32):
-            resized_heatmaps[i] = -np.ones((224, 224), dtype=np.float32)
-
-        full_heatmap = np.sum(combined_heatmaps, axis=0)
-
-        relative_path = os.path.relpath(json_path, input_directory)
-        npy_output_path = os.path.join(output_directory, os.path.splitext(relative_path)[0] + '.npy')
-        os.makedirs(os.path.dirname(npy_output_path), exist_ok=True)
-        np.save(npy_output_path, resized_heatmaps)
-
-        jpg_output_path = os.path.join(output_directory, os.path.splitext(relative_path)[0] + '_heatmap.jpg')
-        os.makedirs(os.path.dirname(jpg_output_path), exist_ok=True)
-        save_heatmap_as_jpg(full_heatmap, jpg_output_path)
-
-        video_lengths.append(len(pose_results))
         resolutions.append((img_h, img_w))
+
+        for json_path in tqdm(json_files, desc=f"Processing {video_folder}"):
+            with open(json_path, 'r') as f:
+                json_data = json.load(f)
+
+            pose_results = json_data['result']
+            keypoints = []
+            bboxes = []
+            for person in pose_results:
+                kp = [(float(p['x']), float(p['y'])) for p in person['pose'].values()]
+                bbox = person['position']['x'], person['position']['y'], person['position']['w'], person['position']['h']
+                keypoints.append(kp)
+                bboxes.append(bbox)
+
+            combined_heatmaps = np.zeros((max_human_objects, img_h, img_w), dtype=np.float32)
+
+            for i, (kp, bbox) in enumerate(zip(keypoints, bboxes)):
+                if i >= max_human_objects:
+                    break
+                kp = np.array(kp)
+                individual_heatmap = generate_individual_heatmap(image, kp, bbox, skeleton, pose_target_generator)
+                combined_heatmaps[i] = individual_heatmap
+
+            resized_heatmaps = np.zeros((max_human_objects, 224, 224), dtype=np.float32)
+            for i in range(min(max_human_objects, max_human_objects)):
+                resized_heatmaps[i] = cv2.resize(combined_heatmaps[i], (224, 224))
+
+            for i in range(min(max_human_objects, max_human_objects), max_human_objects):
+                resized_heatmaps[i] = -np.ones((224, 224), dtype=np.float32)
+
+            full_heatmap = np.sum(combined_heatmaps, axis=0)
+
+            relative_path = os.path.relpath(json_path, input_directory)
+            npy_output_path = os.path.join(output_directory, os.path.splitext(relative_path)[0] + '.npy')
+            os.makedirs(os.path.dirname(npy_output_path), exist_ok=True)
+            np.save(npy_output_path, resized_heatmaps)
+
+            jpg_output_path = os.path.join(output_directory, os.path.splitext(relative_path)[0] + '_heatmap.jpg')
+            os.makedirs(os.path.dirname(jpg_output_path), exist_ok=True)
+            save_heatmap_as_jpg(full_heatmap, jpg_output_path)
+
         num_objects_list.append(len(pose_results))
 
     return video_lengths, resolutions, num_objects_list
