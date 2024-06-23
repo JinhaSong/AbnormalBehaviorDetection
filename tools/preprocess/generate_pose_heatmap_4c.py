@@ -26,7 +26,7 @@ def generate_individual_heatmap(image, keypoints, bbox, skeleton, pose_target_ge
     x, y, w, h = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
 
     if w == 0 or h == 0:
-        return joint_and_limb_heatmap  # Skip if bbox width or height is 0
+        return joint_and_limb_heatmap
 
     x_min = max(0, x - margin)
     y_min = max(0, y - margin)
@@ -91,21 +91,20 @@ def generate_heatmap(input_directory, output_directory, max_human_objects):
             individual_heatmap = generate_individual_heatmap(image, kp, bbox, skeleton, pose_target_generator)
             combined_heatmaps[i] = individual_heatmap
 
-        # Resize each heatmap to 224x224 and create a 32x224x224 tensor
         resized_heatmaps = np.zeros((32, 224, 224), dtype=np.float32)
         for i in range(min(max_human_objects, 32)):
             resized_heatmaps[i] = cv2.resize(combined_heatmaps[i], (224, 224))
 
-        # Sum all heatmaps into a single image for visualization
+        for i in range(min(max_human_objects, 32), 32):
+            resized_heatmaps[i] = -np.ones((224, 224), dtype=np.float32)
+
         full_heatmap = np.sum(combined_heatmaps, axis=0)
 
-        # Generate output path maintaining the directory structure
         relative_path = os.path.relpath(json_path, input_directory)
         npy_output_path = os.path.join(output_directory, os.path.splitext(relative_path)[0] + '.npy')
         os.makedirs(os.path.dirname(npy_output_path), exist_ok=True)
         np.save(npy_output_path, resized_heatmaps)
 
-        # Visualize the concatenated heatmap
         jpg_output_path = os.path.join(output_directory, os.path.splitext(relative_path)[0] + '_heatmap.jpg')
         os.makedirs(os.path.dirname(jpg_output_path), exist_ok=True)
         save_heatmap_as_jpg(full_heatmap, jpg_output_path)
