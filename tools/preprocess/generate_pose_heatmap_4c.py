@@ -6,6 +6,7 @@ import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+import csv
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from util.heatmap import GeneratePoseTarget
@@ -59,6 +60,9 @@ def generate_heatmap(input_directory, output_directory, max_human_objects):
                          for root, _, files in os.walk(input_directory)
                          for file in files if file.endswith('.json')])
 
+    video_lengths = []
+    resolutions = []
+
     for json_path in tqdm(json_files, desc="Processing JSON files"):
         file = os.path.basename(json_path)
         image_path = os.path.join(os.path.dirname(json_path), file.replace('.json', '.jpg'))
@@ -109,6 +113,10 @@ def generate_heatmap(input_directory, output_directory, max_human_objects):
         os.makedirs(os.path.dirname(jpg_output_path), exist_ok=True)
         save_heatmap_as_jpg(full_heatmap, jpg_output_path)
 
+        video_lengths.append(len(pose_results))
+        resolutions.append((img_h, img_w))
+
+    return video_lengths, resolutions
 
 def main():
     parser = argparse.ArgumentParser(description="Process video frames to generate pose heatmaps.")
@@ -120,8 +128,31 @@ def main():
                         help='Maximum number of human objects to consider in each frame.')
     args = parser.parse_args()
 
-    generate_heatmap(args.input_dir, args.output_dir, args.max_human_objects)
+    all_video_lengths = []
+    all_resolutions = []
 
+    for dataset_type in ["train", "test"]:
+        video_lengths, resolutions = generate_heatmap(
+            os.path.join(args.input_dir, dataset_type),
+            os.path.join(args.output_dir, dataset_type),
+            args.max_human_objects
+        )
+        all_video_lengths.extend(video_lengths)
+        all_resolutions.extend(resolutions)
+
+        with open(os.path.join(args.output_dir, f'{dataset_type}_video_lengths.csv'), 'w', newline='') as csvfile:
+            csvwriter = csv.writer(csvfile)
+            csvwriter.writerow(['Video', 'Length (frames)', 'Resolution (H, W)'])
+            for i, (length, resolution) in enumerate(zip(video_lengths, resolutions)):
+                csvwriter.writerow([f'video_{i}', length, resolution])
+
+    total_frames = sum(all_video_lengths)
+    avg_video_length = total_frames / len(all_video_lengths) if all_video_lengths else 0
+    avg_video_length_sec = avg_video_length / 30  # Assuming 30 FPS
+
+    print(f'Total frames: {total_frames}')
+    print(f'Average video length (frames): {avg_video_length}')
+    print(f'Average video length (seconds): {avg_video_length_sec}')
 
 if __name__ == "__main__":
     main()
