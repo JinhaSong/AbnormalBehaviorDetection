@@ -107,7 +107,7 @@ volumes:
   mldisk2:
     driver_opts:
       type: "nfs"
-      o: "addr=mlsun.sogang.ac.kr,nolock,soft,rw"
+      o: "addr=mldisk2.sogang.ac.kr,nolock,soft,rw"
       device: ":/volume1/nfs_shared/abd"
   mlsun:
     driver_opts:
