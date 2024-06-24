@@ -6,8 +6,6 @@ from tqdm import tqdm
 import csv
 import random
 
-def resize_frame(frame, target_size=(32, 224, 224)):
-    return np.resize(frame, target_size)
 
 def load_npy_files(folder_path, num_frames):
     npy_files = sorted([os.path.join(folder_path, f) for f in os.listdir(folder_path) if f.endswith('.npy')])
@@ -23,7 +21,7 @@ def load_npy_files(folder_path, num_frames):
         if len(selected_files) == num_frames:
             break
 
-    frames = [resize_frame(np.load(f)) for f in selected_files]
+    frames = [np.load(f) for f in selected_files]
     return np.array(frames), np.array(frame_numbers)
 
 def save_h5_file(output_path, video_folders, num_frames):
