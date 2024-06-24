@@ -61,8 +61,8 @@ def create_triplet_h5(output_path, normal_folders, abnormal_folders, num_frames,
 
     # Normal triplets
     for anchor_idx, anchor in enumerate(tqdm(normal_videos, desc="Creating normal triplets")):
-        positive_indices = random.sample([i for i in range(len(normal_videos)) if i != anchor_idx], num_positive)
-        negative_indices = random.sample(range(len(abnormal_videos)), num_negative)
+        positive_indices = random.sample([i for i in range(len(normal_videos)) if i != anchor_idx], min(num_positive, len(normal_videos)-1))
+        negative_indices = random.sample(range(len(abnormal_videos)), min(num_negative, len(abnormal_videos)))
 
         for positive_idx in positive_indices:
             for negative_idx in negative_indices:
@@ -80,8 +80,8 @@ def create_triplet_h5(output_path, normal_folders, abnormal_folders, num_frames,
 
     # Abnormal triplets
     for anchor_idx, anchor in enumerate(tqdm(abnormal_videos, desc="Creating abnormal triplets")):
-        positive_indices = random.sample([i for i in range(len(abnormal_videos)) if i != anchor_idx], num_positive)
-        negative_indices = random.sample(range(len(normal_videos)), num_negative)
+        positive_indices = random.sample([i for i in range(len(abnormal_videos)) if i != anchor_idx], min(num_positive, len(abnormal_videos)-1))
+        negative_indices = random.sample(range(len(normal_videos)), min(num_negative, len(normal_videos)))
 
         for positive_idx in positive_indices:
             for negative_idx in negative_indices:
@@ -117,7 +117,6 @@ def main():
                         help='Path to the directory containing video frame folders (training/frames and testing/frames).')
     parser.add_argument('--output-dir', type=str, required=True,
                         help='Path to the output directory where HDF5 files will be saved.')
-
     parser.add_argument('--num-pos', type=int, default=3, help='Number of positive samples per anchor(cuhk pos: 2~3 / shanghaitech pos: 5~7)')
     parser.add_argument('--num-neg', type=int, default=5, help='Number of negative samples per anchor(cuhk neg: 3~5 / shanghaitech neg: 10~15')
     args = parser.parse_args()
