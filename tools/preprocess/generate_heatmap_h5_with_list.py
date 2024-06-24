@@ -111,10 +111,13 @@ def main():
         description="Process video frames to generate HDF5 files with uniform frame sampling.")
     parser.add_argument('--list-dir', type=str, required=True,
                         help='Path to the directory containing train.list and test.list.')
+    parser.add_argument('--dataset', choices=["cuhk", "shanghaitech"], required=True,
+                        help="Type of the dataset")
     parser.add_argument('--npy-dir', type=str, required=True,
                         help='Path to the directory containing video frame folders (training/frames and testing/frames).')
     parser.add_argument('--output-dir', type=str, required=True,
                         help='Path to the output directory where HDF5 files will be saved.')
+
     parser.add_argument('--num-pos', type=int, default=3, help='Number of positive samples per anchor(cuhk pos: 2~3 / shanghaitech pos: 5~7)')
     parser.add_argument('--num-neg', type=int, default=5, help='Number of negative samples per anchor(cuhk neg: 3~5 / shanghaitech neg: 10~15')
     args = parser.parse_args()
@@ -132,12 +135,19 @@ def main():
     test_video_folders = []
 
     for video_name in train_video_list:
-        train_video_folder = os.path.join(args.npy_dir, video_name)
+        if args.dataset == "cuhk":
+            train_video_folder = os.path.join(args.npy_dir, video_name)
+        else:
+            train_video_folder = os.path.join(args.npy_dir, "train", video_name)
         if os.path.isdir(train_video_folder):
             train_video_folders.append(train_video_folder)
 
     for video_name in test_video_list:
-        test_video_folder = os.path.join(args.npy_dir, video_name)
+        if args.dataset == "cuhk":
+            test_video_folder = os.path.join(args.npy_dir, video_name)
+        else:
+            test_video_folder = os.path.join(args.npy_dir, "test", video_name)
+
         if os.path.isdir(test_video_folder):
             test_video_folders.append(test_video_folder)
 
