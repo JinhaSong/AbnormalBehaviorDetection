@@ -107,27 +107,21 @@ def create_triplet_h5(output_path, normal_folders, abnormal_folders, num_frames,
 def main():
     parser = argparse.ArgumentParser(
         description="Process video frames to generate HDF5 files with uniform frame sampling.")
-    parser.add_argument('--dataset-dir', type=str, required=True,
-                        help='Path to the directory containing video frame folders (training/frames and testing/frames).')
+    parser.add_argument('--npy-dir', type=str, required=True,
+                        help='Path to the directory containing video frame npy folders (training/frames and testing/frames).')
     parser.add_argument('--output-dir', type=str, required=True,
                         help='Path to the output directory where HDF5 files will be saved.')
-    parser.add_argument('--frame-counts', type=int, nargs='+', default=[64, 128],
-                        help='List of frame counts to generate heatmaps for.')
     parser.add_argument('--num-pos', type=int, default=3, help='Number of positive samples per anchor(ubnormal: 5)')
     parser.add_argument('--num-neg', type=int, default=5, help='Number of negative samples per anchor(ubnormal: 10)')
     args = parser.parse_args()
 
-    train_frames_dir = os.path.join(args.dataset_dir, 'train')
-    test_frames_dir = os.path.join(args.dataset_dir, 'test')
+    train_frames_dir = os.path.join(args.npy_dir, 'train')
+    test_frames_dir = os.path.join(args.npy_dir, 'test')
 
-    train_video_folders_normal = [os.path.join(train_frames_dir, d) for d in os.listdir(train_frames_dir) if
-                                  os.path.isdir(os.path.join(train_frames_dir, d)) and 'normal' in d]
-    train_video_folders_abnormal = [os.path.join(train_frames_dir, d) for d in os.listdir(train_frames_dir) if
-                                    os.path.isdir(os.path.join(train_frames_dir, d)) and 'abnormal' in d]
-    test_video_folders_normal = [os.path.join(test_frames_dir, d) for d in os.listdir(test_frames_dir) if
-                                 os.path.isdir(os.path.join(test_frames_dir, d)) and 'normal' in d]
-    test_video_folders_abnormal = [os.path.join(test_frames_dir, d) for d in os.listdir(test_frames_dir) if
-                                   os.path.isdir(os.path.join(test_frames_dir, d)) and 'abnormal' in d]
+    train_video_folders_normal = [os.path.join(train_frames_dir, d) for d in os.listdir(train_frames_dir) if os.path.isdir(os.path.join(train_frames_dir, d)) and 'normal' in d]
+    train_video_folders_abnormal = [os.path.join(train_frames_dir, d) for d in os.listdir(train_frames_dir) if os.path.isdir(os.path.join(train_frames_dir, d)) and 'abnormal' in d]
+    test_video_folders_normal = [os.path.join(test_frames_dir, d) for d in os.listdir(test_frames_dir) if os.path.isdir(os.path.join(test_frames_dir, d)) and 'normal' in d]
+    test_video_folders_abnormal = [os.path.join(test_frames_dir, d) for d in os.listdir(test_frames_dir) if os.path.isdir(os.path.join(test_frames_dir, d)) and 'abnormal' in d]
 
     frame_counts = [16, 32, 64, 128]
     for count in frame_counts:
