@@ -29,8 +29,13 @@ class ResNet3D_Triplet(pl.LightningModule):
         return loss
 
     def triplet_loss(self, anchor, positive, negative, margin=1.0):
-        pos_dist = torch.nn.functional.pairwise_distance(anchor, positive)
-        neg_dist = torch.nn.functional.pairwise_distance(anchor, negative)
+        pos_dist = torch.nn.functional.mse_loss(anchor, positive, reduction='none')
+        neg_dist = torch.nn.functional.mse_loss(anchor, negative, reduction='none')
+
+        mask = (anchor != -1).float()
+        pos_dist = (pos_dist * mask).sum() / mask.sum()
+        neg_dist = (neg_dist * mask).sum() / mask.sum()
+
         loss = torch.relu(pos_dist - neg_dist + margin)
         return loss.mean()
 
