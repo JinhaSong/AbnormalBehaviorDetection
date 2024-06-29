@@ -24,7 +24,7 @@ class Heatmap3D_Triplet(pl.LightningModule):
         negative_features = self.heatmap_c3d(negative)
 
         loss = self.triplet_loss(anchor_features, positive_features, negative_features)
-        self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True, batch_size=anchor.size(0))
+        self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True, batch_size=anchor.size(0), sync_dist=True)
 
         # Visualize with TSNE
         self.visualize_tsne(anchor_features, positive_features, negative_features, "train", self.current_epoch)
@@ -57,7 +57,7 @@ class Heatmap3D_Triplet(pl.LightningModule):
         return loss
 
     def on_train_start(self):
-        self.log('val_loss', float('inf'), prog_bar=True, logger=True)
+        self.log('val_loss', float('inf'), prog_bar=True, logger=True, sync_dist=True)
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.wd)
