@@ -1,9 +1,10 @@
 import os
 import torch
+import torch.nn.functional as F
 import pytorch_lightning as pl
-import wandb
 from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
+import wandb
 
 class Heatmap3D_Triplet(pl.LightningModule):
     def __init__(self, heatmap_c3d, lr=1e-3, wd=1e-5, save_dir="checkpoints"):
@@ -12,6 +13,8 @@ class Heatmap3D_Triplet(pl.LightningModule):
         self.lr = lr
         self.wd = wd
         self.save_dir = save_dir
+        self.train_features = None
+        self.val_features = None
         os.makedirs(self.save_dir, exist_ok=True)
 
     def forward(self, x):
@@ -26,8 +29,15 @@ class Heatmap3D_Triplet(pl.LightningModule):
         loss = self.triplet_loss(anchor_features, positive_features, negative_features)
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True, batch_size=anchor.size(0), sync_dist=True)
 
-        # Visualize with TSNE
-        self.visualize_tsne(anchor_features, positive_features, negative_features, "train", self.current_epoch)
+        # Collect features for TSNE visualization
+        if self.train_features is None:
+            self.train_features = (anchor_features.detach().cpu(), positive_features.detach().cpu(), negative_features.detach().cpu())
+        else:
+            self.train_features = (
+                torch.cat((self.train_features[0], anchor_features.detach().cpu()), dim=0),
+                torch.cat((self.train_features[1], positive_features.detach().cpu()), dim=0),
+                torch.cat((self.train_features[2], negative_features.detach().cpu()), dim=0)
+            )
 
         return loss
 
@@ -51,10 +61,32 @@ class Heatmap3D_Triplet(pl.LightningModule):
         loss = self.triplet_loss(anchor_features, positive_features, negative_features)
         self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True, logger=True, batch_size=anchor.size(0), sync_dist=True)
 
-        # Visualize with TSNE
-        self.visualize_tsne(anchor_features, positive_features, negative_features, "val", self.current_epoch)
+        # Collect features for TSNE visualization
+        if self.val_features is None:
+            self.val_features = (anchor_features.detach().cpu(), positive_features.detach().cpu(), negative_features.detach().cpu())
+        else:
+            self.val_features = (
+                torch.cat((self.val_features[0], anchor_features.detach().cpu()), dim=0),
+                torch.cat((self.val_features[1], positive_features.detach().cpu()), dim=0),
+                torch.cat((self.val_features[2], negative_features.detach().cpu()), dim=0)
+            )
 
         return loss
+
+    def on_train_epoch_end(self, unused=None):
+        # Visualize TSNE for training data
+        if self.train_features is not None:
+            self.visualize_tsne(*self.train_features, "train", self.current_epoch)
+            self.train_features = None  # Reset train features after visualization
+
+        # Save model
+        self.save_model(self.current_epoch)
+
+    def on_validation_epoch_end(self):
+        # Visualize TSNE for validation data
+        if self.val_features is not None:
+            self.visualize_tsne(*self.val_features, "val", self.current_epoch)
+            self.val_features = None  # Reset val features after visualization
 
     def on_train_start(self):
         self.log('val_loss', float('inf'), prog_bar=True, logger=True, sync_dist=True)
@@ -71,7 +103,7 @@ class Heatmap3D_Triplet(pl.LightningModule):
         return [optimizer], [lr_scheduler_config]
 
     def visualize_tsne(self, anchor_features, positive_features, negative_features, stage, epoch):
-        features = torch.cat((anchor_features, positive_features, negative_features), dim=0).detach().cpu().numpy()
+        features = torch.cat((anchor_features, positive_features, negative_features), dim=0).numpy()
         tsne_perplexity = min(30, len(features) - 1)
         tsne = TSNE(n_components=2, perplexity=tsne_perplexity, random_state=42)
         tsne_results = tsne.fit_transform(features)
@@ -90,13 +122,11 @@ class Heatmap3D_Triplet(pl.LightningModule):
         plt.savefig(tsne_path)
         plt.close()
 
-        # Upload TSNE image to WandB
         self.logger.experiment.log({f"{stage}_tsne_epoch_{epoch}": wandb.Image(tsne_path)})
 
     def save_model(self, epoch_label):
         model_path = os.path.join(self.save_dir, f'epoch{epoch_label:03d}.pt')
         torch.save(self.state_dict(), model_path)
-        print(f'Model saved to {model_path}')
 
     def on_save_checkpoint(self, checkpoint):
         checkpoint['epoch'] = self.current_epoch
