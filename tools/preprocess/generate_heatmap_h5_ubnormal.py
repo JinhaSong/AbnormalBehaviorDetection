@@ -1,13 +1,10 @@
 import os
-import h5py
-import numpy as np
-import argparse
-from tqdm import tqdm
 import csv
+import h5py
 import random
-
-def resize_frame(frame, target_size=(32, 224, 224)):
-    return np.resize(frame, target_size)
+import argparse
+import numpy as np
+from tqdm import tqdm
 
 def load_npy_files(folder_path, num_frames):
     npy_files = sorted([os.path.join(folder_path, f) for f in os.listdir(folder_path) if f.endswith('.npy')])
@@ -41,68 +38,68 @@ def save_h5_file(output_path, video_folders, num_frames, is_anomaly):
         group.create_dataset('video_data', data=frames)
         group.create_dataset('frame_numbers', data=frame_numbers)
 
-        # Set label based on the folder name
         label = 1 if is_anomaly else 0
         group.create_dataset('label', data=label)
 
     h5f.close()
     print(f"Saved {num_frames} frames per video to {output_path}")
 
-def create_triplet_h5(output_path, normal_folders, abnormal_folders, num_frames, csv_path, num_pos, num_neg):
-    h5f = h5py.File(output_path, 'w')
-    csv_data = []
+def create_triplet_h5(output_path, normal_folders, abnormal_folders, num_frames, num_pos, num_neg, csv_path):
+    video_list = []
+    triplet_info = []
+    normal_indices = []
+    abnormal_indices = []
 
-    normal_videos = [load_npy_files(folder, num_frames)[0] for folder in normal_folders]
-    abnormal_videos = [load_npy_files(folder, num_frames)[0] for folder in abnormal_folders]
+    with h5py.File(output_path, 'w') as h5f:
+        videos_grp = h5f.create_group('videos')
 
-    triplet_index = 0
+        # Normal videos
+        for i, folder in enumerate(tqdm(normal_folders, desc="Adding normal videos")):
+            video, _ = load_npy_files(folder, num_frames)
+            videos_grp.create_dataset(f'{i}', data=video)
+            normal_indices.append(i)
+            video_list.append((i, os.path.basename(folder)))
 
-    # Normal triplets
-    for anchor_idx, anchor in enumerate(tqdm(normal_videos, desc="Creating normal triplets")):
-        positive_indices = random.sample([i for i in range(len(normal_videos)) if i != anchor_idx], num_pos)
-        negative_indices = random.sample(range(len(abnormal_videos)), num_neg)
+        # Abnormal videos
+        abnormal_start_idx = len(normal_folders)
+        for i, folder in enumerate(tqdm(abnormal_folders, desc="Adding abnormal videos")):
+            video, _ = load_npy_files(folder, num_frames)
+            videos_grp.create_dataset(f'{i + abnormal_start_idx}', data=video)
+            abnormal_indices.append(i + abnormal_start_idx)
+            video_list.append((i + abnormal_start_idx, os.path.basename(folder)))
 
-        for positive_idx in positive_indices:
-            for negative_idx in negative_indices:
-                triplet_group = h5f.create_group(f'triplet_{triplet_index}')
-                triplet_group.create_dataset('anchor', data=anchor)
-                triplet_group.create_dataset('positive', data=normal_videos[positive_idx])
-                triplet_group.create_dataset('negative', data=abnormal_videos[negative_idx])
+        # Save indices
+        h5f.create_dataset('normal_indices', data=np.array(normal_indices, dtype=np.int32))
+        h5f.create_dataset('abnormal_indices', data=np.array(abnormal_indices, dtype=np.int32))
 
-                anchor_name = normal_folders[anchor_idx]
-                positive_name = normal_folders[positive_idx]
-                negative_name = abnormal_folders[negative_idx]
-                csv_data.append([triplet_index, anchor_name, positive_name, negative_name])
+        # Normal triplets
+        for anchor_idx in tqdm(normal_indices, desc="Creating normal triplets"):
+            positive_indices = random.sample([i for i in normal_indices if i != anchor_idx], min(num_pos, len(normal_indices)-1))
+            negative_indices = random.sample(abnormal_indices, min(num_neg, len(abnormal_indices)))
+            triplet_info.extend([(anchor_idx, pos_idx, neg_idx) for pos_idx in positive_indices for neg_idx in negative_indices])
 
-                triplet_index += 1
+        # Abnormal triplets
+        for anchor_idx in tqdm(abnormal_indices, desc="Creating abnormal triplets"):
+            positive_indices = random.sample([i for i in abnormal_indices if i != anchor_idx], min(num_pos, len(abnormal_indices)-1))
+            negative_indices = random.sample(normal_indices, min(num_neg, len(normal_indices)))
+            triplet_info.extend([(anchor_idx, pos_idx, neg_idx) for pos_idx in positive_indices for neg_idx in negative_indices])
 
-    # Abnormal triplets
-    for anchor_idx, anchor in enumerate(tqdm(abnormal_videos, desc="Creating abnormal triplets")):
-        positive_indices = random.sample([i for i in range(len(abnormal_videos)) if i != anchor_idx], num_pos)
-        negative_indices = random.sample(range(len(normal_videos)), num_neg)
+        triplet_info_arr = np.array(triplet_info, dtype=np.int32)
+        h5f.create_dataset('triplet_info', data=triplet_info_arr)
 
-        for positive_idx in positive_indices:
-            for negative_idx in negative_indices:
-                triplet_group = h5f.create_group(f'triplet_{triplet_index}')
-                triplet_group.create_dataset('anchor', data=anchor)
-                triplet_group.create_dataset('positive', data=abnormal_videos[positive_idx])
-                triplet_group.create_dataset('negative', data=normal_videos[negative_idx])
+    print(f"Saved triplet index data to {output_path}")
 
-                anchor_name = abnormal_folders[anchor_idx]
-                positive_name = abnormal_folders[positive_idx]
-                negative_name = normal_folders[negative_idx]
-                csv_data.append([triplet_index, anchor_name, positive_name, negative_name])
+    # Save video list to CSV
+    with open(os.path.join(csv_path, f'video_list_f{num_frames}.csv'), 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['Index', 'Video'])
+        writer.writerows(video_list)
 
-                triplet_index += 1
-
-    h5f.close()
-
-    with open(csv_path, 'w', newline='') as csvfile:
-        csvwriter = csv.writer(csvfile)
-        csvwriter.writerow(['Triplet Index', 'Anchor', 'Positive', 'Negative'])
-        csvwriter.writerows(csv_data)
-
-    print(f"Saved triplet data to {output_path} and triplet info to {csv_path}")
+    # Save triplet info to CSV
+    with open(os.path.join(csv_path, f'triplet_info_f{num_frames}.csv'), 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['Anchor', 'Positive', 'Negative'])
+        writer.writerows(triplet_info)
 
 def main():
     parser = argparse.ArgumentParser(
@@ -123,33 +120,16 @@ def main():
     test_video_folders_normal = [os.path.join(test_frames_dir, d) for d in os.listdir(test_frames_dir) if os.path.isdir(os.path.join(test_frames_dir, d)) and 'normal' in d]
     test_video_folders_abnormal = [os.path.join(test_frames_dir, d) for d in os.listdir(test_frames_dir) if os.path.isdir(os.path.join(test_frames_dir, d)) and 'abnormal' in d]
 
-    frame_counts = [16, 32, 64, 128]
+    frame_counts = [64, 128]
     for count in frame_counts:
         print(f"Starting to generate HDF5 files for {count} frames")
 
-        # Train data
-        train_output_path_normal = os.path.join(args.output_dir, f'ubnormal_train_heatmap_normal_f{count}.h5')
-        train_output_path_abnormal = os.path.join(args.output_dir, f'ubnormal_train_heatmap_abnormal_f{count}.h5')
-        save_h5_file(train_output_path_normal, train_video_folders_normal, count, is_anomaly=False)
-        save_h5_file(train_output_path_abnormal, train_video_folders_abnormal, count, is_anomaly=True)
+        # Create triplet index data for contrastive learning
+        train_triplet_h5_path = os.path.join(args.output_dir, f'ubnormal_train_triplet_index_f{count}.h5')
+        create_triplet_h5(train_triplet_h5_path, train_video_folders_normal, train_video_folders_abnormal, count, args.num_pos, args.num_neg, args.output_dir)
 
-        # Test data
-        test_output_path_normal = os.path.join(args.output_dir, f'ubnormal_test_heatmap_normal_f{count}.h5')
-        test_output_path_abnormal = os.path.join(args.output_dir, f'ubnormal_test_heatmap_abnormal_f{count}.h5')
-        save_h5_file(test_output_path_normal, test_video_folders_normal, count, is_anomaly=False)
-        save_h5_file(test_output_path_abnormal, test_video_folders_abnormal, count, is_anomaly=True)
-
-        # Create triplet data for contrastive learning
-        train_triplet_h5_path = os.path.join(args.output_dir, f'ubnormal_train_triplet_heatmap_f{count}.h5')
-        train_triplet_csv_path = os.path.join(args.output_dir, f'ubnormal_train_triplet_heatmap_f{count}.csv')
-        create_triplet_h5(train_triplet_h5_path, train_video_folders_normal, train_video_folders_abnormal, count,
-                          train_triplet_csv_path, args.num_pos, args.num_neg)
-
-        test_triplet_h5_path = os.path.join(args.output_dir, f'ubnormal_test_triplet_heatmap_f{count}.h5')
-        test_triplet_csv_path = os.path.join(args.output_dir, f'ubnormal_test_triplet_heatmap_f{count}.csv')
-        create_triplet_h5(test_triplet_h5_path, test_video_folders_normal, test_video_folders_abnormal, count,
-                          test_triplet_csv_path, args.num_pos, args.num_neg)
-
+        test_triplet_h5_path = os.path.join(args.output_dir, f'ubnormal_test_triplet_index_f{count}.h5')
+        create_triplet_h5(test_triplet_h5_path, test_video_folders_normal, test_video_folders_abnormal, count, args.num_pos, args.num_neg, args.output_dir)
 
 if __name__ == "__main__":
     main()
