@@ -9,6 +9,7 @@ services:
     runtime: nvidia
     restart: always
     ipc: "host"
+    shm_size: '8g'
     env_file:
       - "docker/env.env"
     volumes:
