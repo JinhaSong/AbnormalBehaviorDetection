@@ -79,7 +79,10 @@ class HDF5TripletDataset(Dataset):
             positive = torch.stack([self.transform(positive[c]) for c in range(positive.size(0))])
             negative = torch.stack([self.transform(negative[c]) for c in range(negative.size(0))])
 
-        return anchor, positive, negative
+        if torch.isnan(anchor).any() or torch.isnan(positive).any() or torch.isnan(negative).any():
+            print(f"NaN detected in sample {idx}")
+
+        return anchor, positive, negative, torch.tensor([1 if idx in self.normal_indices else 0])
 
 
 class SmallHDF5TripletDataset(HDF5TripletDataset):
@@ -99,8 +102,10 @@ def get_transform():
 
 
 def collate_fn(batch):
-    anchors, positives, negatives = zip(*batch)
-    anchors = torch.stack(anchors)
-    positives = torch.stack(positives)
-    negatives = torch.stack(negatives)
-    return anchors, positives, negatives
+    anchors, positives, negatives, is_normals = zip(*batch)
+    return (
+        torch.stack(anchors),
+        torch.stack(positives),
+        torch.stack(negatives),
+        torch.tensor(is_normals)
+    )
