@@ -21,7 +21,7 @@ class Heatmap3D_Triplet(pl.LightningModule):
         return self.heatmap_c3d(x)
 
     def training_step(self, batch, batch_idx):
-        anchor, positive, negative = batch
+        anchor, positive, negative, is_normal = batch
         anchor_features = self.heatmap_c3d(anchor)
         positive_features = self.heatmap_c3d(positive)
         negative_features = self.heatmap_c3d(negative)
@@ -31,12 +31,13 @@ class Heatmap3D_Triplet(pl.LightningModule):
 
         # Collect features for TSNE visualization
         if self.train_features is None:
-            self.train_features = (anchor_features.detach().cpu(), positive_features.detach().cpu(), negative_features.detach().cpu())
+            self.train_features = (anchor_features.detach().cpu(), positive_features.detach().cpu(), negative_features.detach().cpu(), is_normal.detach().cpu())
         else:
             self.train_features = (
                 torch.cat((self.train_features[0], anchor_features.detach().cpu()), dim=0),
                 torch.cat((self.train_features[1], positive_features.detach().cpu()), dim=0),
-                torch.cat((self.train_features[2], negative_features.detach().cpu()), dim=0)
+                torch.cat((self.train_features[2], negative_features.detach().cpu()), dim=0),
+                torch.cat((self.train_features[3], is_normal.detach().cpu()), dim=0)
             )
 
         return loss
@@ -53,7 +54,7 @@ class Heatmap3D_Triplet(pl.LightningModule):
         return loss.mean()
 
     def validation_step(self, batch, batch_idx):
-        anchor, positive, negative = batch
+        anchor, positive, negative, is_normal = batch
         anchor_features = self.heatmap_c3d(anchor)
         positive_features = self.heatmap_c3d(positive)
         negative_features = self.heatmap_c3d(negative)
@@ -63,12 +64,13 @@ class Heatmap3D_Triplet(pl.LightningModule):
 
         # Collect features for TSNE visualization
         if self.val_features is None:
-            self.val_features = (anchor_features.detach().cpu(), positive_features.detach().cpu(), negative_features.detach().cpu())
+            self.val_features = (anchor_features.detach().cpu(), positive_features.detach().cpu(), negative_features.detach().cpu(), is_normal.detach().cpu())
         else:
             self.val_features = (
                 torch.cat((self.val_features[0], anchor_features.detach().cpu()), dim=0),
                 torch.cat((self.val_features[1], positive_features.detach().cpu()), dim=0),
-                torch.cat((self.val_features[2], negative_features.detach().cpu()), dim=0)
+                torch.cat((self.val_features[2], negative_features.detach().cpu()), dim=0),
+                torch.cat((self.val_features[3], is_normal.detach().cpu()), dim=0)
             )
 
         return loss
@@ -76,7 +78,23 @@ class Heatmap3D_Triplet(pl.LightningModule):
     def on_train_epoch_end(self, unused=None):
         # Visualize TSNE for training data
         if self.train_features is not None:
-            self.visualize_tsne(*self.train_features, "train", self.current_epoch)
+            normal_mask = self.train_features[3].bool()
+            abnormal_mask = ~normal_mask
+
+            normal_features = (
+                self.train_features[0][normal_mask],
+                self.train_features[1][normal_mask],
+                self.train_features[2][normal_mask]
+            )
+            abnormal_features = (
+                self.train_features[0][abnormal_mask],
+                self.train_features[1][abnormal_mask],
+                self.train_features[2][abnormal_mask]
+            )
+
+            self.visualize_tsne(*normal_features, "train_normal", self.current_epoch)
+            self.visualize_tsne(*abnormal_features, "train_abnormal", self.current_epoch)
+
             self.train_features = None  # Reset train features after visualization
 
         # Save model
@@ -85,7 +103,23 @@ class Heatmap3D_Triplet(pl.LightningModule):
     def on_validation_epoch_end(self):
         # Visualize TSNE for validation data
         if self.val_features is not None:
-            self.visualize_tsne(*self.val_features, "val", self.current_epoch)
+            normal_mask = self.val_features[3].bool()
+            abnormal_mask = ~normal_mask
+
+            normal_features = (
+                self.val_features[0][normal_mask],
+                self.val_features[1][normal_mask],
+                self.val_features[2][normal_mask]
+            )
+            abnormal_features = (
+                self.val_features[0][abnormal_mask],
+                self.val_features[1][abnormal_mask],
+                self.val_features[2][abnormal_mask]
+            )
+
+            self.visualize_tsne(*normal_features, "val_normal", self.current_epoch)
+            self.visualize_tsne(*abnormal_features, "val_abnormal", self.current_epoch)
+
             self.val_features = None  # Reset val features after visualization
 
     def on_train_start(self):
@@ -122,7 +156,7 @@ class Heatmap3D_Triplet(pl.LightningModule):
         plt.savefig(tsne_path)
         plt.close()
 
-        self.logger.experiment.log({f"{stage}_tsne_epoch_{epoch}": wandb.Image(tsne_path)})
+        self.logger.experiment.log({f"{stage}_tsne": wandb.Image(tsne_path)})
 
     def save_model(self, epoch_label):
         model_path = os.path.join(self.save_dir, f'epoch{epoch_label:03d}.pt')
