@@ -45,7 +45,7 @@ class ResNet3D(nn.Module):
         return x
 
 
-def HeatmapC3D4C(depth=18, in_channels=32):
+def HeatmapResNetD4C(depth=18, in_channels=32):
     if depth == 18:
         return ResNet3D(BasicBlock3D, [2, 2, 2, 2], in_channels)
     elif depth == 34:
