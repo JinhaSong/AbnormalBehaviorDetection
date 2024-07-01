@@ -25,8 +25,9 @@ class Heatmap3D_Triplet(pl.LightningModule):
         neg_dist = torch.nn.functional.mse_loss(anchor, negative, reduction='none')
 
         mask = (anchor != -1).float()
-        pos_dist = (pos_dist * mask).sum() / mask.sum()
-        neg_dist = (neg_dist * mask).sum() / mask.sum()
+
+        pos_dist = (pos_dist * mask).sum(dim=1) / mask.sum(dim=1)
+        neg_dist = (neg_dist * mask).sum(dim=1) / mask.sum(dim=1)
 
         loss = torch.relu(pos_dist - neg_dist + margin)
         return loss.mean()
@@ -37,12 +38,10 @@ class Heatmap3D_Triplet(pl.LightningModule):
         positive_features = self.heatmap_c3d(positive)
         negative_features = self.heatmap_c3d(negative)
 
-        # Calculate loss
         loss = self.triplet_loss(anchor_features, positive_features, negative_features)
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True, batch_size=anchor.size(0),
                  sync_dist=True)
 
-        # Collect features for TSNE visualization
         if self.train_features is None:
             self.train_features = (
             anchor_features.detach().cpu(), positive_features.detach().cpu(), negative_features.detach().cpu(),
@@ -63,12 +62,10 @@ class Heatmap3D_Triplet(pl.LightningModule):
         positive_features = self.heatmap_c3d(positive)
         negative_features = self.heatmap_c3d(negative)
 
-        # Calculate loss
         loss = self.triplet_loss(anchor_features, positive_features, negative_features)
         self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True, logger=True, batch_size=anchor.size(0),
                  sync_dist=True)
 
-        # Collect features for TSNE visualization
         if self.val_features is None:
             self.val_features = (
             anchor_features.detach().cpu(), positive_features.detach().cpu(), negative_features.detach().cpu(),
@@ -84,7 +81,6 @@ class Heatmap3D_Triplet(pl.LightningModule):
         return loss
 
     def on_train_epoch_end(self, unused=None):
-        # Visualize TSNE for training data
         if self.train_features is not None:
             normal_mask = self.train_features[3].bool()
             abnormal_mask = ~normal_mask
@@ -103,13 +99,11 @@ class Heatmap3D_Triplet(pl.LightningModule):
             self.visualize_tsne(*normal_features, "train_normal", self.current_epoch)
             self.visualize_tsne(*abnormal_features, "train_abnormal", self.current_epoch)
 
-            self.train_features = None  # Reset train features after visualization
+            self.train_features = None
 
-        # Save model
         self.save_model(self.current_epoch)
 
     def on_validation_epoch_end(self):
-        # Visualize TSNE for validation data
         if self.val_features is not None:
             normal_mask = self.val_features[3].bool()
             abnormal_mask = ~normal_mask
@@ -128,7 +122,7 @@ class Heatmap3D_Triplet(pl.LightningModule):
             self.visualize_tsne(*normal_features, "val_normal", self.current_epoch)
             self.visualize_tsne(*abnormal_features, "val_abnormal", self.current_epoch)
 
-            self.val_features = None  # Reset val features after visualization
+            self.val_features = None
 
     def on_train_start(self):
         self.log('val_loss', float('inf'), prog_bar=True, logger=True, sync_dist=True)
@@ -147,9 +141,8 @@ class Heatmap3D_Triplet(pl.LightningModule):
     def visualize_tsne(self, anchor_features, positive_features, negative_features, stage, epoch):
         features = torch.cat((anchor_features, positive_features, negative_features), dim=0).numpy()
         num_samples = features.shape[0]
-        tsne_perplexity = min(30, max(1, (num_samples - 1) // 3))  # Ensure perplexity is at least 1
+        tsne_perplexity = min(30, max(1, (num_samples - 1) // 3))
 
-        # Skip TSNE if perplexity is not valid
         if num_samples <= tsne_perplexity:
             print(f"Skipping TSNE visualization for {stage} at epoch {epoch} due to insufficient samples.")
             return
