@@ -20,28 +20,6 @@ class Heatmap3D_Triplet(pl.LightningModule):
     def forward(self, x):
         return self.heatmap_c3d(x)
 
-    def training_step(self, batch, batch_idx):
-        anchor, positive, negative, is_normal = batch
-        anchor_features = self.heatmap_c3d(anchor)
-        positive_features = self.heatmap_c3d(positive)
-        negative_features = self.heatmap_c3d(negative)
-
-        loss = self.triplet_loss(anchor_features, positive_features, negative_features)
-        self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True, batch_size=anchor.size(0), sync_dist=True)
-
-        # Collect features for TSNE visualization
-        if self.train_features is None:
-            self.train_features = (anchor_features.detach().cpu(), positive_features.detach().cpu(), negative_features.detach().cpu(), is_normal.detach().cpu())
-        else:
-            self.train_features = (
-                torch.cat((self.train_features[0], anchor_features.detach().cpu()), dim=0),
-                torch.cat((self.train_features[1], positive_features.detach().cpu()), dim=0),
-                torch.cat((self.train_features[2], negative_features.detach().cpu()), dim=0),
-                torch.cat((self.train_features[3], is_normal.detach().cpu()), dim=0)
-            )
-
-        return loss
-
     def triplet_loss(self, anchor, positive, negative, margin=1.0):
         pos_dist = torch.nn.functional.mse_loss(anchor, positive, reduction='none')
         neg_dist = torch.nn.functional.mse_loss(anchor, negative, reduction='none')
@@ -53,18 +31,48 @@ class Heatmap3D_Triplet(pl.LightningModule):
         loss = torch.relu(pos_dist - neg_dist + margin)
         return loss.mean()
 
+    def training_step(self, batch, batch_idx):
+        anchor, positive, negative, is_normal = batch
+        anchor_features = self.heatmap_c3d(anchor)
+        positive_features = self.heatmap_c3d(positive)
+        negative_features = self.heatmap_c3d(negative)
+
+        # Calculate loss
+        loss = self.triplet_loss(anchor_features, positive_features, negative_features)
+        self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True, batch_size=anchor.size(0),
+                 sync_dist=True)
+
+        # Collect features for TSNE visualization
+        if self.train_features is None:
+            self.train_features = (
+            anchor_features.detach().cpu(), positive_features.detach().cpu(), negative_features.detach().cpu(),
+            is_normal.detach().cpu())
+        else:
+            self.train_features = (
+                torch.cat((self.train_features[0], anchor_features.detach().cpu()), dim=0),
+                torch.cat((self.train_features[1], positive_features.detach().cpu()), dim=0),
+                torch.cat((self.train_features[2], negative_features.detach().cpu()), dim=0),
+                torch.cat((self.train_features[3], is_normal.detach().cpu()), dim=0)
+            )
+
+        return loss
+
     def validation_step(self, batch, batch_idx):
         anchor, positive, negative, is_normal = batch
         anchor_features = self.heatmap_c3d(anchor)
         positive_features = self.heatmap_c3d(positive)
         negative_features = self.heatmap_c3d(negative)
 
+        # Calculate loss
         loss = self.triplet_loss(anchor_features, positive_features, negative_features)
-        self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True, logger=True, batch_size=anchor.size(0), sync_dist=True)
+        self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True, logger=True, batch_size=anchor.size(0),
+                 sync_dist=True)
 
         # Collect features for TSNE visualization
         if self.val_features is None:
-            self.val_features = (anchor_features.detach().cpu(), positive_features.detach().cpu(), negative_features.detach().cpu(), is_normal.detach().cpu())
+            self.val_features = (
+            anchor_features.detach().cpu(), positive_features.detach().cpu(), negative_features.detach().cpu(),
+            is_normal.detach().cpu())
         else:
             self.val_features = (
                 torch.cat((self.val_features[0], anchor_features.detach().cpu()), dim=0),
@@ -138,7 +146,14 @@ class Heatmap3D_Triplet(pl.LightningModule):
 
     def visualize_tsne(self, anchor_features, positive_features, negative_features, stage, epoch):
         features = torch.cat((anchor_features, positive_features, negative_features), dim=0).numpy()
-        tsne_perplexity = min(30, len(features) - 1)
+        num_samples = features.shape[0]
+        tsne_perplexity = min(30, max(1, (num_samples - 1) // 3))  # Ensure perplexity is at least 1
+
+        # Skip TSNE if perplexity is not valid
+        if num_samples <= tsne_perplexity:
+            print(f"Skipping TSNE visualization for {stage} at epoch {epoch} due to insufficient samples.")
+            return
+
         tsne = TSNE(n_components=2, perplexity=tsne_perplexity, random_state=42)
         tsne_results = tsne.fit_transform(features)
 
