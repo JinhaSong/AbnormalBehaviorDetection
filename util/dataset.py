@@ -44,6 +44,9 @@ def parse_dataset_dir(dataset_dir, dataset):
             "test": None,
             "test_frames": None
         }
+    elif dataset == "test":
+        frames_dir = dataset_dir
+        return frames_dir
     else:
         raise ValueError(f"Unsupported dataset: {dataset}")
 
