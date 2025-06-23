@@ -6,21 +6,21 @@ import torch.nn.functional as F
 class InceptionV1Module3D(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(InceptionV1Module3D, self).__init__()
-        self.branch1 = nn.Conv3d(in_channels, out_channels, kernel_size=1)
+        self.branch1 = nn.Conv3d(in_channels, out_channels // 4, kernel_size=1)
 
         self.branch2 = nn.Sequential(
-            nn.Conv3d(in_channels, out_channels, kernel_size=1),
-            nn.Conv3d(out_channels, out_channels, kernel_size=3, padding=1)
+            nn.Conv3d(in_channels, out_channels // 4, kernel_size=1),
+            nn.Conv3d(out_channels // 4, out_channels // 4, kernel_size=3, padding=1)
         )
 
         self.branch3 = nn.Sequential(
-            nn.Conv3d(in_channels, out_channels, kernel_size=1),
-            nn.Conv3d(out_channels, out_channels, kernel_size=5, padding=2)
+            nn.Conv3d(in_channels, out_channels // 4, kernel_size=1),
+            nn.Conv3d(out_channels // 4, out_channels // 4, kernel_size=5, padding=2)
         )
 
         self.branch4 = nn.Sequential(
             nn.MaxPool3d(kernel_size=3, stride=1, padding=1),
-            nn.Conv3d(in_channels, out_channels, kernel_size=1)
+            nn.Conv3d(in_channels, out_channels // 4, kernel_size=1)
         )
 
     def forward(self, x):
@@ -42,25 +42,41 @@ class InceptionV1I3D(nn.Module):
         self.bn2 = nn.BatchNorm3d(192)
         self.pool2 = nn.MaxPool3d(kernel_size=3, stride=2, padding=1)
 
-        self.inception3a = InceptionV1Module3D(192, 64)
-        self.inception3b = InceptionV1Module3D(256, 128)
+        self.dropout = nn.Dropout3d(p=0.3)
+
+        self.inception3a = InceptionV1Module3D(192, 256)
+        self.inception3b = InceptionV1Module3D(256, 512)
         self.pool3 = nn.MaxPool3d(kernel_size=3, stride=2, padding=1)
 
-        self.inception4a = InceptionV1Module3D(512, 128)
-        self.inception4b = InceptionV1Module3D(512, 128)
-        self.inception4c = InceptionV1Module3D(512, 128)
-        self.inception4d = InceptionV1Module3D(512, 128)
-        self.inception4e = InceptionV1Module3D(512, 256)
-        self.pool4 = nn.MaxPool3d(kernel_size=2, stride=2, padding=0)
+        self.inception4a = InceptionV1Module3D(512, 512)
+        self.inception4b = InceptionV1Module3D(512, 512)
+        self.inception4c = InceptionV1Module3D(512, 512)
+        self.inception4d = InceptionV1Module3D(512, 512)
+        self.inception4e = InceptionV1Module3D(512, 1024)
+        self.pool4 = nn.MaxPool3d(kernel_size=(2, 2, 1), stride=(2, 2, 1), padding=0)  # 마지막 차원에 대한 pooling 생략
 
-        self.inception5a = InceptionV1Module3D(1024, 256)
-        self.inception5b = InceptionV1Module3D(1024, 256)
+        self.inception5a = InceptionV1Module3D(1024, 1024)
+        self.inception5b = InceptionV1Module3D(1024, 1024)
 
         self.avgpool = nn.AdaptiveAvgPool3d((1, 1, 1))
 
+        self.feature_maps = None
+        self.gradients = None
+
     def forward(self, x):
+        def save_feature_map_hook(module, input, output):
+            if not output.requires_grad:
+                output = output.detach().clone().requires_grad_(True)
+
+            self.feature_maps = output
+            output.register_hook(self.save_gradients)
+
+        self.inception5b.register_forward_hook(save_feature_map_hook)
+
         x = self.pool1(F.relu(self.bn1(self.conv1(x))))
+        x = self.dropout(x)
         x = self.pool2(F.relu(self.bn2(self.conv2(x))))
+        x = self.dropout(x)
 
         x = self.inception3a(x)
         x = self.inception3b(x)
@@ -77,9 +93,65 @@ class InceptionV1I3D(nn.Module):
         x = self.inception5b(x)
 
         x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
+        x = torch.flatten(x, 1)
 
         return x
+
+    # backward hook을 사용하여 gradient 저장
+    def save_gradients(self, grad):
+        self.gradients = grad
+
+    def get_gradients(self):
+        return self.gradients
+
+    def get_feature_maps(self):
+        return self.feature_maps
+
+    # Grad-CAM heatmap 생성 함수
+    def generate_cam(self, class_indices=None):
+        if self.gradients is None:
+            print("Gradients and feature maps are required for Grad-CAM")
+            return None
+        if self.feature_maps is None:
+            print("Feature maps are required for Grad-CAM")
+            return None
+
+        gradients = self.gradients
+        feature_maps = self.feature_maps
+
+        min_batch_size = min(gradients.size(0), feature_maps.size(0))
+        gradients = gradients[:min_batch_size]
+        feature_maps = feature_maps[:min_batch_size]
+
+        if class_indices is None:
+            class_indices = [0, 1, 2]  # 기본적으로 클래스 0 (assault), 1 (falldown), 2 (normal)
+
+        cams = []
+        for idx in class_indices:
+            weights = torch.mean(gradients, dim=(2, 3, 4), keepdim=True)
+
+            cam = torch.sum(weights * feature_maps, dim=1)
+            cam = F.relu(cam)  # ReLU를 통해 음수를 제거
+
+            # Heatmap을 이미지 크기에 맞춰서 resize (frame_count, 224, 224)
+            cam = F.interpolate(cam.unsqueeze(1), size=(cam.size(2), 224, 224), mode='trilinear', align_corners=False)
+            cam = cam.squeeze(1)
+
+            # heatmap 정규화
+            cam_min, cam_max = cam.min(), cam.max()
+            cam = (cam - cam_min) / (cam_max - cam_min)
+
+            cams.append(cam)
+
+        cams = torch.stack(cams, dim=0)
+
+        return cams  # (3, frame_count, 224, 224)
+
+
+def HeatmapInceptionV1I3D(in_channels=32):
+    return InceptionV1I3D(in_channels)
+
+
 
 class InceptionV3Module3D(nn.Module):
     def __init__(self, in_channels, out_channels1, out_channels3_reduce, out_channels3, out_channels5_reduce, out_channels5, out_channels_pool):
