@@ -7,40 +7,75 @@ from torch.utils.data import Dataset, default_collate
 from torchvision.transforms import Compose, ToTensor, Normalize
 
 
-class HDF5Dataset(Dataset):
-    def __init__(self, h5_file, transform=None):
-        super().__init__()
-        self.h5_file = h5_file
-        self.transform = transform
-        self.dataset_keys = []
-        with h5py.File(self.h5_file, 'r') as file:
-            self.dataset_keys = list(file.keys())
-
-    def __len__(self):
-        return len(self.dataset_keys)
-
-    def __getitem__(self, idx):
-        with h5py.File(self.h5_file, 'r') as file:
-            video_data = file[self.dataset_keys[idx]]['video_data'][()]
-            label = file[self.dataset_keys[idx]]['label'][()]
-
-        video_data = video_data.transpose((1, 0, 2, 3))
-        video_data = torch.tensor(video_data, dtype=torch.float32)
-
-        if self.transform:
-            video_data = torch.stack([self.transform(video_data[c]) for c in range(video_data.size(0))])
-
-        label = torch.tensor(label, dtype=torch.float32)
-
-        return video_data, label
-
-
-class HDF5TripletDataset(Dataset):
-    def __init__(self, h5_file, max_length, transform=None, log=False):
+class HDF5AnchorDataset(Dataset):
+    def __init__(self, h5_file, max_length, transform=None, log=False, depth=32):
         super().__init__()
         self.h5_file = h5_file
         self.transform = transform
         self.max_length = max_length
+        self.depth = depth
+
+        with h5py.File(self.h5_file, 'r') as file:
+            anchor_indices = file['triplet_info'][:, 0]  # Only use anchor indices
+            self.anchor_info = list(set(anchor_indices))  # Remove duplicates
+            self.normal_indices = file['normal_indices'][()]
+            self.abnormal_indices = file['abnormal_indices'][()]
+
+        if log:
+            self.log_dataset_statistics()
+
+    def log_dataset_statistics(self):
+        normal_anchors = sum(1 for idx in self.anchor_info if idx in self.normal_indices)
+        abnormal_anchors = len(self.anchor_info) - normal_anchors
+        print(f"Total anchors: {len(self.anchor_info)}")
+        print(f"Normal anchors: {normal_anchors}")
+        print(f"Abnormal anchors: {abnormal_anchors}")
+
+    def __len__(self):
+        return len(self.anchor_info)
+
+    def pad_or_crop(self, tensor, target_length):
+        current_length = tensor.shape[0]
+        if current_length == target_length:
+            return tensor
+        elif current_length > target_length:
+            return tensor[:target_length]
+        else:
+            padding = (0, 0, 0, 0, 0, 0, 0, target_length - current_length)
+            return F.pad(tensor, padding, 'constant', 0)
+
+    def __getitem__(self, idx):
+        with h5py.File(self.h5_file, 'r') as file:
+            anchor_idx = self.anchor_info[idx]
+            anchor = torch.tensor(file['videos'][str(anchor_idx)][:], dtype=torch.float32)
+
+        # Check depth
+        if anchor.shape[1] != self.depth:
+            raise ValueError(f"Depth mismatch at index {idx}: anchor depth {anchor.shape[1]}")
+
+        anchor = self.pad_or_crop(anchor, self.max_length)
+        anchor = anchor.transpose(0, 1).transpose(1, 2).transpose(2, 3)  # (C, T, H, W)
+
+        if self.transform:
+            anchor = torch.stack([self.transform(anchor[c]) for c in range(anchor.size(0))])
+
+        if torch.isnan(anchor).any():
+            # Handle NaN values
+            anchor = torch.nan_to_num(anchor)
+            print(f"NaN detected and replaced in sample {idx}")
+
+        is_normal = 1 if anchor_idx in self.normal_indices else 0
+
+        return anchor, torch.tensor([is_normal], dtype=torch.float32)
+
+
+class HDF5TripletDataset(Dataset):
+    def __init__(self, h5_file, max_length, transform=None, log=False, depth=32):
+        super().__init__()
+        self.h5_file = h5_file
+        self.transform = transform
+        self.max_length = max_length
+        self.depth = depth
 
         with h5py.File(self.h5_file, 'r') as file:
             self.triplet_info = file['triplet_info'][()]
@@ -77,6 +112,10 @@ class HDF5TripletDataset(Dataset):
             anchor = torch.tensor(file['videos'][str(anchor_idx)][:], dtype=torch.float32)
             positive = torch.tensor(file['videos'][str(pos_idx)][:], dtype=torch.float32)
             negative = torch.tensor(file['videos'][str(neg_idx)][:], dtype=torch.float32)
+
+        # Check depth
+        if anchor.shape[1] != self.depth or positive.shape[1] != self.depth or negative.shape[1] != self.depth:
+            raise ValueError(f"Depth mismatch at index {idx}: anchor depth {anchor.shape[1]}, positive depth {positive.shape[1]}, negative depth {negative.shape[1]}")
 
         anchor = self.pad_or_crop(anchor, self.max_length)
         positive = self.pad_or_crop(positive, self.max_length)
@@ -151,11 +190,18 @@ def get_transform():
     ])
 
 
-def collate_fn(batch):
+def triplet_collate_fn(batch):
     anchors, positives, negatives, is_normals = zip(*batch)
     return (
         torch.stack(anchors),
         torch.stack(positives),
         torch.stack(negatives),
+        torch.tensor(is_normals)
+    )
+
+def collate_fn(batch):
+    anchors, is_normals = zip(*batch)
+    return (
+        torch.stack(anchors),
         torch.tensor(is_normals)
     )
