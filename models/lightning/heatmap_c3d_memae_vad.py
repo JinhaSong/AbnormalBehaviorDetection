@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 
 class HeatmapC3D_MemAE_VAD(pl.LightningModule):
-    def __init__(self, heatmap_c3d, memautoencoder, lr=1e-3, wd=1e-5, max_frames=128, save_dir="checkpoints", config=None):
+    def __init__(self, heatmap_c3d, memautoencoder, chunk_size=16, lr=1e-3, wd=1e-5, max_frames=128, save_dir="checkpoints", config=None):
         super(HeatmapC3D_MemAE_VAD, self).__init__()
         self.heatmap_c3d = heatmap_c3d
         self.memautoencoder = memautoencoder
@@ -22,7 +22,7 @@ class HeatmapC3D_MemAE_VAD(pl.LightningModule):
         self.best_epoch = -1
         self.save_dir = save_dir
         self.config = config if config else {}
-        self.chunk_size = 16
+        self.chunk_size = chunk_size
         os.makedirs(self.save_dir, exist_ok=True)
 
     def forward(self, x):
@@ -57,9 +57,9 @@ class HeatmapC3D_MemAE_VAD(pl.LightningModule):
         loss_recon = nn.functional.mse_loss(reconstructed, features)
 
         loss_sparsity = (
-            torch.mean(torch.sum(-out["att_weight3"] * torch.log(out["att_weight3"] + 1e-12), dim=1))
-            + torch.mean(torch.sum(-out["att_weight2"] * torch.log(out["att_weight2"] + 1e-12), dim=1))
-            + torch.mean(torch.sum(-out["att_weight1"] * torch.log(out["att_weight1"] + 1e-12), dim=1))
+            torch.mean(torch.sum(-out["att_weight3"] * torch.log(out["att_weight3"] + 1e-12), dim=1)) +
+            torch.mean(torch.sum(-out["att_weight2"] * torch.log(out["att_weight2"] + 1e-12), dim=1)) +
+            torch.mean(torch.sum(-out["att_weight1"] * torch.log(out["att_weight1"] + 1e-12), dim=1))
         )
 
         loss_all = self.config.get("lam_recon", 1.0) * loss_recon + self.config.get("lam_sparse", 1.0) * loss_sparsity
@@ -89,7 +89,7 @@ class HeatmapC3D_MemAE_VAD(pl.LightningModule):
         if len(torch.unique(y_trues)) > 1:
             auc = self.auroc(y_preds.cpu(), y_trues.cpu())
             self.log('train_auc', auc, prog_bar=True)
-            tqdm.write(f'Epoch {self.current_epoch}: train_loss: {self.trainer.callback_metrics["train_loss"]:.4f}, train_auc: {auc:.4f}')
+            # tqdm.write(f'Epoch {self.current_epoch}: train_loss: {self.trainer.callback_metrics["train_loss"]:.4f}, train_auc: {auc:.4f}')
         else:
             tqdm.write('Only one class present in y_true. ROC AUC score is not defined.')
         self.train_step_outputs.clear()
@@ -148,7 +148,7 @@ class HeatmapC3D_MemAE_VAD(pl.LightningModule):
         if len(torch.unique(y_trues)) > 1:
             auc = self.auroc(y_preds.cpu(), y_trues.cpu())
             self.log('val_auc', auc, prog_bar=True)
-            tqdm.write(f'Epoch {self.current_epoch}: val_loss: {self.trainer.callback_metrics["val_loss"]:.4f}, val_auc: {auc:.4f}')
+            # tqdm.write(f'Epoch {self.current_epoch}: val_loss: {self.trainer.callback_metrics["val_loss"]:.4f}, val_auc: {auc:.4f}')
 
             if auc > self.best_val_auc:
                 self.best_val_auc = auc
@@ -168,9 +168,18 @@ class HeatmapC3D_MemAE_VAD(pl.LightningModule):
         torch.save(self.state_dict(), model_path)
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.wd)
-        return optimizer
-
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.wd)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=10,
+                                                               verbose=True)
+        return {
+            'optimizer': optimizer,
+            'lr_scheduler': {
+                'scheduler': scheduler,
+                'monitor': 'val_loss',  # 'val_loss'를 모니터할 메트릭으로 지정
+                'interval': 'epoch',
+                'frequency': 1
+            }
+        }
     def on_save_checkpoint(self, checkpoint):
         checkpoint['epoch'] = self.current_epoch
         checkpoint['global_step'] = self.global_step
