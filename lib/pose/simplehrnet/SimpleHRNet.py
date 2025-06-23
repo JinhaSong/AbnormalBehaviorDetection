@@ -139,18 +139,26 @@ class SimpleHRNet:
                     # Adapt detections to match HRNet input aspect ratio (as suggested by xtyDoge in issue #14)
                     correction_factor = self.resolution[0] / self.resolution[1] * (x2 - x1) / (y2 - y1)
                     if correction_factor > 1:
-                        # increase y side
+                        # 세로를 늘림 (마진을 줄이기 위해 비율 조정을 완화)
                         center = y1 + (y2 - y1) // 2
-                        length = int(round((y2 - y1) * correction_factor))
+                        length = int(round((y2 - y1) * correction_factor * 0.9))  # 마진을 줄임
                         y1 = max(0, center - length // 2)
                         y2 = min(image.shape[0], center + length // 2)
                     elif correction_factor < 1:
-                        # increase x side
+                        # 가로를 늘림 (마진을 줄이기 위해 비율 조정을 완화)
                         center = x1 + (x2 - x1) // 2
-                        length = int(round((x2 - x1) * 1 / correction_factor))
+                        length = int(round((x2 - x1) * 1 / correction_factor * 0.9))  # 마진을 줄임
                         x1 = max(0, center - length // 2)
                         x2 = min(image.shape[1], center + length // 2)
 
+                    # 이미지 경계를 넘지 않도록 추가 보정
+                    x1 = max(0, x1)
+                    y1 = max(0, y1)
+                    x2 = min(image.shape[1], x2)
+                    y2 = min(image.shape[0], y2)
+
+                    x1, x2 = sorted([x1, x2])
+                    y1, y2 = sorted([y1, y2])
 
                     boxes[i] = [x1, y1, x2, y2]
                     images[i] = self.transform(image[y1:y2, x1:x2, ::-1])
