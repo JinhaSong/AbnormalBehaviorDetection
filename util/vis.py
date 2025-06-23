@@ -117,6 +117,7 @@ OBJECT_DATASET_CLASSES = {
     "coco": COCO_CLASSES_LIST,
     "obstacle-15": OBSTACLE_15,
 }
+SCORE_THRESH = 0.1
 
 
 
@@ -212,7 +213,7 @@ class Visualization():
             self.person_colors[person_id] = new_color
         return self.person_colors[person_id]
 
-    def draw_bboxes(self, img, detection_results, score_threshold=0.5):
+    def draw_bboxes(self, img, detection_results, score_threshold=SCORE_THRESH):
         for detection_result in detection_results:
             score = detection_result["label"][0]["score"]
             cl = detection_result["label"][0]["class_idx"]
@@ -231,26 +232,29 @@ class Visualization():
                 img = draw_boxed_text(img, txt, txt_loc, color)
         return img
 
-    def draw_bboxes_person(self, img, detection_results, score_threshold=0.5):
+    def draw_bboxes_person(self, img, detection_results, score_threshold=SCORE_THRESH):
         for detection_result in detection_results:
-            score = detection_result["label"][0]["score"]
-            cls_name = detection_result["label"][0]["description"]
-            person_id = detection_result["tracking_id"]
-            bbox = detection_result["position"]
-            x_min = int(bbox["x"])
-            y_min = int(bbox["y"])
-            x_max = int(bbox["x"] + bbox["w"])
-            y_max = int(bbox["y"] + bbox["h"])
+            try:
+                score = detection_result["label"][0]["score"]
+                cls_name = detection_result["label"][0]["description"]
+                person_id = detection_result["tracking_id"]
+                bbox = detection_result["position"]
+                x_min = int(bbox["x"])
+                y_min = int(bbox["y"])
+                x_max = int(bbox["x"] + bbox["w"])
+                y_max = int(bbox["y"] + bbox["h"])
 
-            if score >= score_threshold and cls_name == "person":
-                color = self.get_color(person_id)
-                cv2.rectangle(img, (x_min, y_min), (x_max, y_max), color, 2)
-                txt_loc = (max(x_min + 2, 0), max(y_min + 2, 0))
-                txt = '{} {:.2f} ID:{}'.format(cls_name, score, person_id)
-                img = draw_boxed_text(img, txt, txt_loc, color)
+                if score >= score_threshold and cls_name == "person":
+                    color = self.get_color(person_id)
+                    cv2.rectangle(img, (x_min, y_min), (x_max, y_max), color, 2)
+                    txt_loc = (max(x_min + 2, 0), max(y_min + 2, 0))
+                    txt = '{} {:.2f} ID:{}'.format(cls_name, score, person_id)
+                    img = draw_boxed_text(img, txt, txt_loc, color)
+            except Exception as e:
+                raise e
         return img
 
-    def draw_points_and_skeleton(self, image, pose_results, score_threshold=0.5):
+    def draw_points_and_skeleton(self, image, pose_results, score_threshold=SCORE_THRESH):
         points = self.reformat_pose_results(pose_results)
         skeleton = self.joints["skeleton"]
         image = self.draw_skeleton(image, points, skeleton, score_threshold=score_threshold)
@@ -273,7 +277,7 @@ class Visualization():
                 points.append(person)
         return points
 
-    def draw_points(self, image, points, color_palette='tab20', palette_samples=16, score_threshold=0.5):
+    def draw_points(self, image, points, color_palette='tab20', palette_samples=16, score_threshold=SCORE_THRESH):
         try:
             colors = np.round(
                 np.array(plt.get_cmap(color_palette).colors) * 255
@@ -293,7 +297,7 @@ class Visualization():
 
         return image
 
-    def draw_skeleton(self, image, points, skeleton, color_palette='Set2', palette_samples=8, score_threshold=0.5):
+    def draw_skeleton(self, image, points, skeleton, color_palette='Set2', palette_samples=8, score_threshold=SCORE_THRESH):
         try:
             colors = np.round(
                 np.array(plt.get_cmap(color_palette).colors) * 255
