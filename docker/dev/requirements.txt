@@ -7,6 +7,7 @@ PyYaml==5.4
 ruamel.yaml==0.17.21
 filterpy==1.4.5
 scikit-learn==1.3.2
+einops==0.8.0
 opencv-python
 
 # logging
