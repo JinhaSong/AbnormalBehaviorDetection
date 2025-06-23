@@ -29,7 +29,10 @@ class GeneratePoseTarget:
         return heatmap
 
     def generate_a_limb_heatmap(self, img_h, img_w, start, end, sigma, start_value, end_value):
-        heatmap = np.zeros((img_h, img_w), dtype=np.float32)
+        try:
+            heatmap = np.zeros((img_h, img_w), dtype=np.float32)
+        except:
+            print(img_h, img_w)
         value_coeff = min(start_value, end_value)
         if value_coeff < self.eps:
             return heatmap
