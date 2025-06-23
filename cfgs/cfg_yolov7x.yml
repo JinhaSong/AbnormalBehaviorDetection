@@ -2,7 +2,7 @@ infer:
   model_name: yolov7x
   model_path: /workspace/weights/yolo/yolov7x-obstacle15.pt
   dataset: obstacle-15
-  conf_thresh: 0.5
+  conf_thresh: 0.1
   nms_thresh: 0.5
   image_size: 640
   is_batch: true
