@@ -6,7 +6,16 @@ from tqdm import tqdm
 import random
 import csv
 
-def load_npy_files(folder_path, num_frames):
+
+import os
+import h5py
+import numpy as np
+import argparse
+from tqdm import tqdm
+import random
+import csv
+
+def load_npy_files(folder_path, num_frames, in_channels):
     npy_files = sorted([os.path.join(folder_path, f) for f in os.listdir(folder_path) if f.endswith('.npy')])
     total_files = len(npy_files)
     interval = max(total_files // num_frames, 1)
@@ -14,6 +23,13 @@ def load_npy_files(folder_path, num_frames):
     selected_files = []
     frame_numbers = []
     for i in range(0, total_files, interval):
+        frame = np.load(npy_files[i])
+        if frame.shape[0] != in_channels:
+            print(f"Channel mismatch in file {npy_files[i]}: expected {in_channels}, got {frame.shape[0]}")
+            continue
+        if np.isnan(frame).any():
+            print(f"NaN detected in file {npy_files[i]}")
+            continue
         selected_files.append(npy_files[i])
         frame_number = int(os.path.splitext(os.path.basename(npy_files[i]))[0].split('_')[-1])
         frame_numbers.append(frame_number)
@@ -21,9 +37,10 @@ def load_npy_files(folder_path, num_frames):
             break
 
     frames = [np.load(f) for f in selected_files]
+
     return np.array(frames), np.array(frame_numbers)
 
-def create_triplet_h5(output_path, normal_folders, abnormal_folders, num_frames, num_pos, num_neg, csv_path):
+def create_triplet_h5(output_path, normal_folders, abnormal_folders, num_frames, num_pos, num_neg, csv_path, in_channels):
     video_list = []
     triplet_info = []
     normal_indices = []
@@ -34,7 +51,10 @@ def create_triplet_h5(output_path, normal_folders, abnormal_folders, num_frames,
 
         # Normal videos
         for i, folder in enumerate(tqdm(normal_folders, desc="Adding normal videos")):
-            video, _ = load_npy_files(folder, num_frames)
+            video, _ = load_npy_files(folder, num_frames, in_channels)
+            if len(video) < num_frames:
+                print(f"Insufficient frames in video from {folder}, skipping...")
+                continue
             videos_grp.create_dataset(f'{i}', data=video)
             normal_indices.append(i)
             video_list.append((i, os.path.basename(folder)))
@@ -42,7 +62,10 @@ def create_triplet_h5(output_path, normal_folders, abnormal_folders, num_frames,
         # Abnormal videos
         abnormal_start_idx = len(normal_folders)
         for i, folder in enumerate(tqdm(abnormal_folders, desc="Adding abnormal videos")):
-            video, _ = load_npy_files(folder, num_frames)
+            video, _ = load_npy_files(folder, num_frames, in_channels)
+            if len(video) < num_frames:
+                print(f"Insufficient frames in video from {folder}, skipping...")
+                continue
             videos_grp.create_dataset(f'{i + abnormal_start_idx}', data=video)
             abnormal_indices.append(i + abnormal_start_idx)
             video_list.append((i + abnormal_start_idx, os.path.basename(folder)))
@@ -53,13 +76,13 @@ def create_triplet_h5(output_path, normal_folders, abnormal_folders, num_frames,
 
         # Normal triplets
         for anchor_idx in tqdm(normal_indices, desc="Creating normal triplets"):
-            positive_indices = random.sample([i for i in normal_indices if i != anchor_idx], min(num_pos, len(normal_indices)-1))
+            positive_indices = random.sample([i for i in normal_indices if i != anchor_idx], min(num_pos, len(normal_indices) - 1))
             negative_indices = random.sample(abnormal_indices, min(num_neg, len(abnormal_indices)))
             triplet_info.extend([(anchor_idx, pos_idx, neg_idx) for pos_idx in positive_indices for neg_idx in negative_indices])
 
         # Abnormal triplets
         for anchor_idx in tqdm(abnormal_indices, desc="Creating abnormal triplets"):
-            positive_indices = random.sample([i for i in abnormal_indices if i != anchor_idx], min(num_pos, len(abnormal_indices)-1))
+            positive_indices = random.sample([i for i in abnormal_indices if i != anchor_idx], min(num_pos, len(abnormal_indices) - 1))
             negative_indices = random.sample(normal_indices, min(num_neg, len(normal_indices)))
             triplet_info.extend([(anchor_idx, pos_idx, neg_idx) for pos_idx in positive_indices for neg_idx in negative_indices])
 
@@ -102,6 +125,13 @@ def main():
     train_video_folders = []
     test_video_folders = []
 
+    if args.dataset == "cuhk":
+        in_channels = 24
+    elif args.dataset == "shanghaitech":
+        in_channels = 32
+    else:
+        in_channels = 32
+
     for video_name in train_video_list:
         if args.dataset == "cuhk":
             train_video_folder = os.path.join(args.npy_dir, video_name)
@@ -133,15 +163,16 @@ def main():
     test_video_folders_normal = [folder for folder in test_video_folders if 'train' in folder]
     test_video_folders_abnormal = [folder for folder in test_video_folders if 'test' in folder]
 
-    frame_counts = [64, 128]
+    frame_counts = [16, 32, 64, 128]
     for count in frame_counts:
         print(f"Starting to generate HDF5 files for {count} frames (test: {len(test_video_folders_normal) + len(test_video_folders_abnormal)} / train: {len(train_video_folders_normal) + len(train_video_folders_abnormal)})")
 
         train_triplet_h5_path = os.path.join(args.output_dir, f'train_triplet_heatmap_f{count}.h5')
-        create_triplet_h5(train_triplet_h5_path, train_video_folders_normal, train_video_folders_abnormal, count, args.num_pos, args.num_neg, args.output_dir)
+        create_triplet_h5(train_triplet_h5_path, train_video_folders_normal, train_video_folders_abnormal, count, args.num_pos, args.num_neg, args.output_dir, in_channels)
 
         test_triplet_h5_path = os.path.join(args.output_dir, f'test_triplet_heatmap_f{count}.h5')
-        create_triplet_h5(test_triplet_h5_path, test_video_folders_normal, test_video_folders_abnormal, count, args.num_pos, args.num_neg, args.output_dir)
+        create_triplet_h5(test_triplet_h5_path, test_video_folders_normal, test_video_folders_abnormal, count, args.num_pos, args.num_neg, args.output_dir, in_channels)
+
 
 if __name__ == "__main__":
     main()
