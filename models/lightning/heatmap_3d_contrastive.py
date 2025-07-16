@@ -6,9 +6,16 @@ from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
 import wandb
 
-class Heatmap3D_Triplet(pl.LightningModule):
+def is_main_process():
+    if torch.distributed.is_available() and torch.distributed.is_initialized():
+        return torch.distributed.get_rank() == 0
+    elif 'LOCAL_RANK' in os.environ:
+        return int(os.environ.get('LOCAL_RANK', 0)) == 0
+    return True
+
+class Heatmap3DContrastive(pl.LightningModule):
     def __init__(self, heatmap_c3d, lr=1e-3, wd=1e-5, save_dir="checkpoints"):
-        super(Heatmap3D_Triplet, self).__init__()
+        super(Heatmap3DContrastive, self).__init__()
         self.heatmap_c3d = heatmap_c3d
         self.lr = lr
         self.wd = wd
@@ -172,7 +179,11 @@ class Heatmap3D_Triplet(pl.LightningModule):
         plt.savefig(tsne_path)
         plt.close()
 
-        self.logger.experiment.log({f"{stage}_tsne": wandb.Image(tsne_path)})
+        if is_main_process() and os.path.exists(tsne_path) and os.path.getsize(tsne_path) > 0:
+            try:
+                self.logger.experiment.log({f"{stage}_tsne": wandb.Image(tsne_path), "epoch": epoch})
+            except Exception as e:
+                print(f"[Warning] wandb.Image logging failed: {e}")
 
     def visualize_temporal_saliency(self, saliency, class_name, epoch):
         """
