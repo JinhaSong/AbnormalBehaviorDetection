@@ -119,7 +119,7 @@ class HeatmapMTHPA_Contrastive(pl.LightningModule):
                  logger=True, batch_size=anchor.size(0), sync_dist=True)
         
         # Store features for visualization (limited)
-        if self.global_step % 500 == 0:  # Store less frequently
+        if self.global_step % 10 == 0 or self.current_epoch == 0:  # Store less frequently
             with torch.no_grad():
                 feats = torch.cat([anchor_feat.detach().cpu(), pair_feat.detach().cpu()], dim=0)
                 labs = torch.cat([labels.cpu(), labels.cpu()], dim=0)
@@ -193,6 +193,10 @@ class HeatmapMTHPA_Contrastive(pl.LightningModule):
         if self.train_features is not None:
             try:
                 features, labels = self.train_features
+                print("Num train features for t-SNE:", features.shape[0])
+                if features.shape[0] < 5:
+                    print(f"[TSNE] Skipping visualization for train at epoch {self.current_epoch} - too few samples")
+                    return
                 self.visualize_tsne(features, labels, "train", self.current_epoch)
             except Exception as e:
                 print(f"Failed to visualize train features: {e}")
