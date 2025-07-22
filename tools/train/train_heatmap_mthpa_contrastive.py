@@ -280,13 +280,13 @@ def main():
     if args.resume_checkpoint:
         run_name = args.run_name
         project_dir = args.model_dir
-        project_name = f"VAD_{args.dataset}_mthpa-{args.model_type}"
+        project_name = f"VAD_{args.dataset}_mthpa"
     else:
         if args.run_name == "":
-            project_name = f"VAD_{args.dataset}_mthpa-{args.model_type}"
+            project_name = f"VAD_{args.dataset}_mthpa"
             run_name = f"{args.dataset}_mthpa-{args.model_type}_T{args.T}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         else:
-            project_name = f"VAD_{args.dataset}_mthpa-{args.model_type}"
+            project_name = f"VAD_{args.dataset}_mthpa"
             run_name = f"{args.run_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
         project_dir = get_unique_proj_dir_name(args.model_dir, f"{run_name}")
