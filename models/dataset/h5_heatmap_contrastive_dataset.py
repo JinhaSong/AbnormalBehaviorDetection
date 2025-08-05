@@ -97,22 +97,53 @@ class HDF5ContrastiveDataset(Dataset):
         pair = self.pad_or_crop(pair, self.max_length)
         
         # (T, C, H, W) → (C, T, H, W) for easier processing
-        anchor = anchor.transpose(0, 1).transpose(1, 2).transpose(2, 3)
-        pair = pair.transpose(0, 1).transpose(1, 2).transpose(2, 3)
+        anchor = anchor.transpose(0, 1)  # Only swap T and C dimensions
+        pair = pair.transpose(0, 1)
         
-        # Apply transforms if specified
+        # Create masks for missing persons (-1 values)
+        # anchor shape: (C, T, H, W) where C=objects, T=time
+        # We want to check if each person at each time has valid data
+        # Create mask: True if person has valid data (not all -1)
+        anchor_mask = (anchor != -1).any(dim=3).any(dim=2)  # Remove H, W dims -> (C, T)
+        pair_mask = (pair != -1).any(dim=3).any(dim=2)  # Remove H, W dims -> (C, T)
+        
+        # Apply transforms if specified (but not to -1 values)
         if self.transform:
-            anchor = torch.stack([self.transform(anchor[c]) for c in range(anchor.size(0))])
-            pair = torch.stack([self.transform(pair[c]) for c in range(pair.size(0))])
+            anchor_transformed = []
+            pair_transformed = []
+            
+            for c in range(anchor.size(0)):
+                # Create channel mask
+                ch_mask_anchor = anchor_mask[c].unsqueeze(-1).unsqueeze(-1)
+                ch_mask_pair = pair_mask[c].unsqueeze(-1).unsqueeze(-1)
+                
+                # Apply transform only to valid regions
+                anchor_ch = anchor[c].clone()
+                pair_ch = pair[c].clone()
+                
+                # Temporarily replace -1 with 0 for transform
+                anchor_ch[anchor_ch == -1] = 0
+                pair_ch[pair_ch == -1] = 0
+                
+                # Apply transform
+                anchor_ch = self.transform(anchor_ch)
+                pair_ch = self.transform(pair_ch)
+                
+                # Restore -1 for invalid regions
+                anchor_ch = anchor_ch * ch_mask_anchor + (-1) * (~ch_mask_anchor)
+                pair_ch = pair_ch * ch_mask_pair + (-1) * (~ch_mask_pair)
+                
+                anchor_transformed.append(anchor_ch)
+                pair_transformed.append(pair_ch)
+            
+            anchor = torch.stack(anchor_transformed)
+            pair = torch.stack(pair_transformed)
         
-        # Check for NaN values
-        if torch.isnan(anchor).any() or torch.isnan(pair).any():
-            print(f"NaN detected in sample pair {idx}")
-            # Replace NaN with zeros
-            anchor = torch.nan_to_num(anchor, nan=0.0)
-            pair = torch.nan_to_num(pair, nan=0.0)
+        # Transpose mask to match model input (T, O)
+        anchor_mask = anchor_mask.transpose(0, 1)  # (C, T) -> (T, C)
+        pair_mask = pair_mask.transpose(0, 1)  # (C, T) -> (T, C)
         
-        return anchor, pair, torch.tensor(label, dtype=torch.float32)
+        return anchor, pair, torch.tensor(label, dtype=torch.float32), anchor_mask, pair_mask
 
     def get_cache_stats(self):
         """Get cache statistics"""
@@ -187,19 +218,54 @@ class SmallHDF5ContrastiveDataset(Dataset):
         pair = self.pad_or_crop(pair, self.max_length)
         
         # (T, C, H, W) → (C, T, H, W)
-        anchor = anchor.transpose(0, 1).transpose(1, 2).transpose(2, 3)
-        pair = pair.transpose(0, 1).transpose(1, 2).transpose(2, 3)
+        anchor = anchor.transpose(0, 1)  # Only swap T and C dimensions
+        pair = pair.transpose(0, 1)
+        
+        # Create masks for missing persons (-1 values)
+        anchor_mask = (anchor != -1).any(dim=3).any(dim=2)  # Remove H, W dims -> (C, T)
+        pair_mask = (pair != -1).any(dim=3).any(dim=2)  # Remove H, W dims -> (C, T)
         
         if self.transform:
-            anchor = torch.stack([self.transform(anchor[c]) for c in range(anchor.size(0))])
-            pair = torch.stack([self.transform(pair[c]) for c in range(pair.size(0))])
+            anchor_transformed = []
+            pair_transformed = []
+            
+            for c in range(anchor.size(0)):
+                # Create channel mask
+                ch_mask_anchor = anchor_mask[c].unsqueeze(-1).unsqueeze(-1)
+                ch_mask_pair = pair_mask[c].unsqueeze(-1).unsqueeze(-1)
+                
+                # Apply transform only to valid regions
+                anchor_ch = anchor[c].clone()
+                pair_ch = pair[c].clone()
+                
+                # Temporarily replace -1 with 0 for transform
+                anchor_ch[anchor_ch == -1] = 0
+                pair_ch[pair_ch == -1] = 0
+                
+                # Apply transform
+                anchor_ch = self.transform(anchor_ch)
+                pair_ch = self.transform(pair_ch)
+                
+                # Restore -1 for invalid regions
+                anchor_ch = anchor_ch * ch_mask_anchor + (-1) * (~ch_mask_anchor)
+                pair_ch = pair_ch * ch_mask_pair + (-1) * (~ch_mask_pair)
+                
+                anchor_transformed.append(anchor_ch)
+                pair_transformed.append(pair_ch)
+            
+            anchor = torch.stack(anchor_transformed)
+            pair = torch.stack(pair_transformed)
+        
+        # Transpose mask to match model input (T, O)
+        anchor_mask = anchor_mask.transpose(0, 1)  # (C, T) -> (T, C)
+        pair_mask = pair_mask.transpose(0, 1)  # (C, T) -> (T, C)
         
         if torch.isnan(anchor).any() or torch.isnan(pair).any():
             print(f"NaN detected in sample pair {idx}")
             anchor = torch.nan_to_num(anchor, nan=0.0)
             pair = torch.nan_to_num(pair, nan=0.0)
         
-        return anchor, pair, torch.tensor(label, dtype=torch.float32)
+        return anchor, pair, torch.tensor(label, dtype=torch.float32), anchor_mask, pair_mask
 
 
 def get_transform():
@@ -210,21 +276,24 @@ def get_transform():
 
 
 def contrastive_collate_fn(batch):
-    """Custom collate function for contrastive learning"""
-    anchors, pairs, labels = zip(*batch)
+    """Custom collate function for contrastive learning with masks"""
+    anchors, pairs, labels, anchor_masks, pair_masks = zip(*batch)
     
     # Stack tensors
     anchors = torch.stack(anchors)
     pairs = torch.stack(pairs)
     labels = torch.tensor(labels)
+    anchor_masks = torch.stack(anchor_masks)
+    pair_masks = torch.stack(pair_masks)
     
     # Memory optimization: ensure contiguous memory layout
     anchors = anchors.contiguous()
     pairs = pairs.contiguous()
     labels = labels.contiguous()
+    anchor_masks = anchor_masks.contiguous()
+    pair_masks = pair_masks.contiguous()
     
-    return anchors, pairs, labels
-
+    return anchors, pairs, labels, anchor_masks, pair_masks
 
 def triplet_collate_fn(batch):
     """Custom collate function for triplet learning"""
