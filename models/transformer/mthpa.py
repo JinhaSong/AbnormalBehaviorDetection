@@ -6,355 +6,371 @@ import math
 from torch.utils.checkpoint import checkpoint as gradient_checkpoint
 
 
-class MemoryEfficientMultiHeadAttention(nn.Module):
-    def __init__(self, embed_dim, num_heads, dropout=0.1):
+class PoseHeatmapEncoder(nn.Module):
+    """Encode pose heatmaps with spatial awareness"""
+    def __init__(self, embed_dim, patch_size=16):
         super().__init__()
-        self.embed_dim = embed_dim
-        self.num_heads = num_heads
-        self.head_dim = embed_dim // num_heads
-        assert self.head_dim * num_heads == embed_dim, "embed_dim must be divisible by num_heads"
+        # Two-stage encoding for better feature extraction
+        self.stage1 = nn.Sequential(
+            nn.Conv2d(1, 64, 7, stride=2, padding=3),  # 224 -> 112
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 128, 3, stride=2, padding=1),  # 112 -> 56
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+        )
         
-        # Fused QKV projection for memory efficiency
-        self.qkv_proj = nn.Linear(embed_dim, 3 * embed_dim, bias=False)
-        self.out_proj = nn.Linear(embed_dim, embed_dim)
-        self.dropout = nn.Dropout(dropout)
-        self.scale = self.head_dim ** -0.5
+        self.stage2 = nn.Conv2d(128, embed_dim, 4, stride=4)  # 56 -> 14
+        self.norm = nn.LayerNorm(embed_dim)
+        
+    def forward(self, x):
+        x = self.stage1(x)
+        x = self.stage2(x)
+        # Normalize
+        B, C, H, W = x.shape
+        x = x.flatten(2).transpose(1, 2)  # (B, H*W, C)
+        x = self.norm(x)
+        x = x.transpose(1, 2).reshape(B, C, H, W)
+        return x
+
+
+class SpatioTemporalAttention(nn.Module):
+    """Balanced spatial-temporal attention"""
+    def __init__(self, embed_dim, num_heads=8, dropout=0.1):
+        super().__init__()
+        # Use fewer heads for efficiency
+        self.spatial_attn = nn.MultiheadAttention(
+            embed_dim, num_heads // 2, dropout=dropout, batch_first=True
+        )
+        self.temporal_attn = nn.MultiheadAttention(
+            embed_dim, num_heads // 2, dropout=dropout, batch_first=True
+        )
+        
+        self.spatial_norm = nn.LayerNorm(embed_dim)
+        self.temporal_norm = nn.LayerNorm(embed_dim)
+        
+        # Learnable weights for mixing
+        self.alpha = nn.Parameter(torch.ones(1) * 0.5)
         
     def forward(self, x, mask=None):
-        B, L, D = x.shape
+        # x: (B, T, O, N, D)
+        B, T, O, N, D = x.shape
         
-        # Single projection for Q, K, V
-        qkv = self.qkv_proj(x)
-        qkv = qkv.reshape(B, L, 3, self.num_heads, self.head_dim)
-        qkv = qkv.permute(2, 0, 3, 1, 4)  # 3, B, H, L, D
-        q, k, v = qkv.unbind(0)  # Each is B, H, L, D
+        # 1. Spatial attention (per frame-object)
+        x_spatial = rearrange(x, 'b t o n d -> (b t o) n d')
+        x_spatial = self.spatial_norm(x_spatial)
+        x_spatial, _ = self.spatial_attn(x_spatial, x_spatial, x_spatial)
+        x_spatial = rearrange(x_spatial, '(b t o) n d -> b t o n d', b=B, t=T, o=O)
         
-        # Use PyTorch's efficient attention if available
-        if hasattr(F, 'scaled_dot_product_attention'):
-            # Use memory-efficient attention
-            attn_output = F.scaled_dot_product_attention(
-                q, k, v,
-                attn_mask=mask,
-                dropout_p=self.dropout.p if self.training else 0.0,
-                scale=self.scale
+        # 2. Pool spatial for temporal attention
+        x_pooled = x.mean(dim=3)  # (B, T, O, D)
+        
+        # 3. Temporal attention (per object)
+        x_temporal = rearrange(x_pooled, 'b t o d -> (b o) t d')
+        x_temporal = self.temporal_norm(x_temporal)
+        
+        if mask is not None:
+            mask_temporal = rearrange(mask, 'b t o -> (b o) t')
+            x_temporal, _ = self.temporal_attn(
+                x_temporal, x_temporal, x_temporal,
+                key_padding_mask=~mask_temporal
             )
         else:
-            # Fallback to chunked attention for long sequences
-            if L > 1024:
-                attn_output = self._chunked_attention(q, k, v, mask)
-            else:
-                attn_output = self._standard_attention(q, k, v, mask)
+            x_temporal, _ = self.temporal_attn(x_temporal, x_temporal, x_temporal)
         
-        attn_output = attn_output.transpose(1, 2).contiguous().view(B, L, D)
-        return self.out_proj(attn_output), None
-    
-    def _standard_attention(self, q, k, v, mask=None):
-        scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
-        if mask is not None:
-            scores = scores.masked_fill(mask == 0, -1e9)
-        attn_weights = F.softmax(scores, dim=-1, dtype=torch.float32).type_as(scores)
-        attn_weights = self.dropout(attn_weights)
-        return torch.matmul(attn_weights, v)
-    
-    def _chunked_attention(self, q, k, v, mask=None, chunk_size=512):
-        B, H, L, D = q.shape
-        attn_chunks = []
+        x_temporal = rearrange(x_temporal, '(b o) t d -> b t o d', b=B, o=O)
         
-        for i in range(0, L, chunk_size):
-            end_i = min(i + chunk_size, L)
-            q_chunk = q[:, :, i:end_i]
-            
-            scores = torch.matmul(q_chunk, k.transpose(-2, -1)) * self.scale
+        # 4. Mix spatial and temporal
+        x_pooled = x_pooled + self.alpha * x_temporal
+        x_out = x + x_pooled.unsqueeze(3)
+        
+        return x_out, x_pooled  # Return both for flexibility
+
+
+class CrossPersonAttention(nn.Module):
+    """Lightweight cross-person attention"""
+    def __init__(self, embed_dim, num_heads=4, dropout=0.1):
+        super().__init__()
+        # Use standard multihead attention for stability
+        self.attn = nn.MultiheadAttention(
+            embed_dim, num_heads, dropout=dropout, batch_first=True
+        )
+        self.norm = nn.LayerNorm(embed_dim)
+        
+        # Gating mechanism
+        self.gate = nn.Sequential(
+            nn.Linear(embed_dim * 2, embed_dim),
+            nn.ReLU(),
+            nn.Linear(embed_dim, 1),
+            nn.Sigmoid()
+        )
+        
+    def forward(self, x, mask=None):
+        # x: (B, T, O, D)
+        B, T, O, D = x.shape
+        
+        if O == 1:
+            return x
+        
+        # Process each timestep
+        x_out = []
+        for t in range(T):
+            x_t = x[:, t]  # (B, O, D)
+            x_t_norm = self.norm(x_t)
             
             if mask is not None:
-                if mask.dim() == 2:
-                    scores = scores.masked_fill(mask[:, i:end_i, None, :] == 0, -1e4)
+                mask_t = mask[:, t]  # (B, O)
+                attn_out, _ = self.attn(
+                    x_t_norm, x_t_norm, x_t_norm,
+                    key_padding_mask=~mask_t
+                )
+            else:
+                attn_out, _ = self.attn(x_t_norm, x_t_norm, x_t_norm)
             
-            attn_weights = F.softmax(scores, dim=-1, dtype=torch.float32).type_as(scores)
-            attn_weights = self.dropout(attn_weights)
+            # Gated addition
+            x_mean = x_t.mean(dim=1, keepdim=True).expand_as(x_t)
+            gate_input = torch.cat([x_t, x_mean], dim=-1)
+            gate = self.gate(gate_input)
             
-            attn_chunk = torch.matmul(attn_weights, v)
-            attn_chunks.append(attn_chunk)
+            x_t = x_t + gate * attn_out
+            x_out.append(x_t)
         
-        return torch.cat(attn_chunks, dim=2)
+        x_out = torch.stack(x_out, dim=1)  # (B, T, O, D)
+        return x_out
 
 
-class TemporalAttention(nn.Module):
-    def __init__(self, embed_dim, num_heads, dropout=0.1):
+class MTHPABlock(nn.Module):
+    """MTHPA block balancing efficiency and concept preservation"""
+    def __init__(self, embed_dim, num_heads, mlp_ratio=2.0, dropout=0.1, use_cross_attn=True):
         super().__init__()
-        self.attention = MemoryEfficientMultiHeadAttention(embed_dim, num_heads, dropout)
-        self.norm = nn.LayerNorm(embed_dim)
-        self.dropout = nn.Dropout(dropout)
+        
+        # Spatial-temporal attention
+        self.st_attn = SpatioTemporalAttention(embed_dim, num_heads, dropout)
+        
+        # Cross-person attention (can be disabled for efficiency)
+        self.use_cross_attn = use_cross_attn
+        if use_cross_attn:
+            self.cross_attn = CrossPersonAttention(embed_dim, num_heads // 2, dropout)
+        
+        # FFN
+        mlp_hidden = int(embed_dim * mlp_ratio)
+        self.ffn = nn.Sequential(
+            nn.LayerNorm(embed_dim),
+            nn.Linear(embed_dim, mlp_hidden),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(mlp_hidden, embed_dim),
+            nn.Dropout(dropout)
+        )
         
     def forward(self, x, mask=None):
-        residual = x
-        x = self.norm(x)
-        attn_output, _ = self.attention(x, mask)
-        x = residual + self.dropout(attn_output)
-        return x
-
-
-class SpatialAttention(nn.Module):
-    def __init__(self, embed_dim, num_heads, dropout=0.1):
-        super().__init__()
-        self.attention = MemoryEfficientMultiHeadAttention(embed_dim, num_heads, dropout)
-        self.norm = nn.LayerNorm(embed_dim)
-        self.dropout = nn.Dropout(dropout)
-        
-    def forward(self, x, mask=None):
-        residual = x
-        x = self.norm(x)
-        attn_output, _ = self.attention(x, mask)
-        x = residual + self.dropout(attn_output)
-        return x
-
-
-class ObjectPoseRelationAttention(nn.Module):
-    def __init__(self, embed_dim, num_heads=1, dropout=0.1):
-        super().__init__()
-        self.norm = nn.LayerNorm(embed_dim)
-        self.attn = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout, batch_first=True)
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, x):
-        # x shape: (B, T, N_patches, O, D)
-        B, T, N_patches, O, D = x.shape
-        
-        # Process in chunks to save memory
-        chunk_size = 8  # Process 8 time steps at once
-        outputs = []
-        
-        for t_start in range(0, T, chunk_size):
-            t_end = min(t_start + chunk_size, T)
-            x_chunk = x[:, t_start:t_end]  # (B, chunk, N, O, D)
+        # x: (B, T, O, N, D) or (B, T, O, D) if pooled
+        if x.dim() == 4:  # Already pooled
+            B, T, O, D = x.shape
             
-            # Reshape for attention
-            x_flat = x_chunk.reshape(-1, O, D)  # (B*chunk*N, O, D)
-            x_norm = self.norm(x_flat)
+            # Cross-person attention
+            if self.use_cross_attn and O > 1:
+                x = x + self.cross_attn(x, mask)
             
-            # Apply attention
-            attn_out, _ = self.attn(x_norm, x_norm, x_norm)
-            attn_out = self.dropout(attn_out)
+            # FFN
+            x = x + self.ffn(x)
             
-            # Reshape back
-            attn_out = attn_out.view(B, t_end - t_start, N_patches, O, D)
-            outputs.append(attn_out)
-        
-        return torch.cat(outputs, dim=1)
-
-
-class MLP(nn.Module):
-    def __init__(self, embed_dim, mlp_dim, dropout=0.1):
-        super().__init__()
-        self.norm = nn.LayerNorm(embed_dim)
-        self.fc1 = nn.Linear(embed_dim, mlp_dim)
-        self.fc2 = nn.Linear(mlp_dim, embed_dim)
-        self.dropout = nn.Dropout(dropout)
-        self.activation = nn.GELU()
-        
-    def forward(self, x):
-        residual = x
-        x = self.norm(x)
-        x = self.fc1(x)
-        x = self.activation(x)
-        x = self.dropout(x)
-        x = self.fc2(x)
-        x = self.dropout(x)
-        return x + residual
-
-
-class TransformerBlock(nn.Module):
-    def __init__(self, embed_dim, num_heads, mlp_dim, dropout=0.1, use_checkpoint=False):
-        super().__init__()
-        self.use_checkpoint = use_checkpoint
-        self.temporal_attn = TemporalAttention(embed_dim, num_heads, dropout)
-        self.spatial_attn = SpatialAttention(embed_dim, num_heads, dropout)
-        self.mlp = MLP(embed_dim, mlp_dim, dropout)
-
-    def _forward_impl(self, x, mask=None):
-        if x.dim() == 3:
-            # (B*O*N, T, D): temporal attention only
-            x = self.temporal_attn(x, mask)
-            x = self.mlp(x)
             return x
-        elif x.dim() == 5:
+        else:  # Full resolution
             B, T, O, N, D = x.shape
-            # Temporal attention
-            x_temp = rearrange(x, 'b t o n d -> (b o n) t d')
-            x_temp = self.temporal_attn(x_temp, mask)
-            x = rearrange(x_temp, '(b o n) t d -> b t o n d', b=B, o=O, n=N)
-            # Spatial attention
-            x_spat = rearrange(x, 'b t o n d -> (b t o) n d')
-            x_spat = self.spatial_attn(x_spat, mask)
-            x = rearrange(x_spat, '(b t o) n d -> b t o n d', b=B, t=T, o=O)
-            # MLP
-            x_flat = rearrange(x, 'b t o n d -> (b t o n) d')
-            x_flat = self.mlp(x_flat)
-            x = rearrange(x_flat, '(b t o n) d -> b t o n d', b=B, t=T, o=O, n=N)
-            return x
-        else:
-            raise ValueError(f"Unsupported input shape for TransformerBlock: {x.shape}")
-    
-    def forward(self, x, mask=None):
-        if self.use_checkpoint and self.training and x.requires_grad:
-            return gradient_checkpoint(self._forward_impl, x, mask, use_reentrant=False)
-        else:
-            return self._forward_impl(x, mask)
+            
+            # Spatial-temporal attention
+            x, x_pooled = self.st_attn(x, mask)
+            
+            # Cross-person attention on pooled features
+            if self.use_cross_attn and O > 1:
+                x_pooled = x_pooled + self.cross_attn(x_pooled, mask)
+                # Update full resolution
+                x = x + (x_pooled.unsqueeze(3) - x.mean(dim=3, keepdim=True))
+            
+            # FFN (on pooled to save memory)
+            x_pooled = x_pooled + self.ffn(x_pooled)
+            
+            # For next layer, return pooled
+            return x_pooled
 
 
 class MTHPA(nn.Module):
     def __init__(self,
-                 num_frames=64,
+                 num_frames=32,
                  in_channels=32,
-                 embed_dim=768,
+                 embed_dim=384,
                  patch_size=(16, 16),
-                 num_heads=12,
+                 num_heads=8,
                  num_layers=12,
-                 num_object_layers=4,
-                 mlp_dim=None,
+                 mlp_ratio=3.0,
                  dropout=0.1,
-                 use_gradient_checkpointing=False):
-        super(MTHPA, self).__init__()
-        if mlp_dim is None:
-            mlp_dim = embed_dim * 4
-        self.embed_dim = embed_dim
+                 use_gradient_checkpointing=True):
+        super().__init__()
+        
         self.num_frames = num_frames
         self.in_channels = in_channels
-        self.patch_size = patch_size if isinstance(patch_size, tuple) else (patch_size, patch_size)
+        self.embed_dim = embed_dim
+        self.patch_size = patch_size[0] if isinstance(patch_size, tuple) else patch_size
         self.use_gradient_checkpointing = use_gradient_checkpointing
         
-        # Patch embedding
-        self.patch_embedding = nn.Sequential(
-            nn.Conv2d(1, embed_dim, kernel_size=patch_size, stride=patch_size),
-        )
+        # Pose encoder
+        self.pose_encoder = PoseHeatmapEncoder(embed_dim, self.patch_size)
         
         # Position embeddings
-        self.temporal_pos_embed = nn.Parameter(torch.randn(1, num_frames, 1, 1, embed_dim))
-        self.object_pos_embed = nn.Parameter(torch.randn(1, 1, in_channels, 1, embed_dim))
-        self.spatial_pos_embed = None  # Will be created dynamically
+        self.pos_embed = nn.Parameter(torch.zeros(1, 196, embed_dim))  # 14x14
+        self.temporal_embed = nn.Parameter(torch.zeros(1, num_frames, 1, embed_dim))
+        self.person_embed = nn.Parameter(torch.zeros(1, 1, in_channels, embed_dim))
         
-        # Transformer blocks with optional gradient checkpointing
-        self.transformer_blocks = nn.ModuleList([
-            TransformerBlock(
-                embed_dim, num_heads, mlp_dim, dropout,
-                use_checkpoint=(use_gradient_checkpointing and i % 2 == 0)
+        # Transformer blocks
+        self.blocks = nn.ModuleList([
+            MTHPABlock(
+                embed_dim, num_heads, mlp_ratio, dropout,
+                use_cross_attn=(i >= num_layers // 3)  # Cross-attn only in later layers
             )
             for i in range(num_layers)
         ])
         
-        # Object pose relation attention
-        self.object_pose_relation = ObjectPoseRelationAttention(embed_dim, dropout=dropout)
-        
-        # Final norm
+        # Output
         self.norm = nn.LayerNorm(embed_dim)
-        self.dropout = nn.Dropout(dropout)
+        self.head = nn.Linear(embed_dim, embed_dim // 4)
         
-        # For Grad-CAM compatibility
-        self.feature_maps = None
-        self.gradients = None
-
-    def forward(self, x):
-        if x.shape[1] == 32 and x.shape[-1] == 16:
-            x = x.permute(0, 4, 1, 2, 3)
-        B, T, O, H, W = x.shape
+        self._init_weights()
         
-        x_reshaped = x.reshape(B * T * O, 1, H, W)
-        x = self.patch_embedding[0](x_reshaped)
-
-        x = x.view(B, T, O, self.embed_dim, x.shape[2], x.shape[3])
-        x = x.permute(0, 1, 2, 4, 5, 3)
-        N_patches = x.shape[3] * x.shape[4]
-        x = x.reshape(B, T, O, N_patches, self.embed_dim)
+    def _init_weights(self):
+        nn.init.trunc_normal_(self.pos_embed, std=0.02)
+        nn.init.trunc_normal_(self.temporal_embed, std=0.02)
+        nn.init.trunc_normal_(self.person_embed, std=0.02)
         
-        temporal_pos_embed = self.temporal_pos_embed
-        if temporal_pos_embed.shape[1] < T:
-            temporal_pos_embed = temporal_pos_embed[:, :1, :, :, :].repeat(1, T, 1, 1, 1)
+    def forward(self, x, mask=None):
+        # x: (B, O, T, H, W)
+        B, O, T, H, W = x.shape
+        
+        # Handle mask
+        if mask is None:
+            mask = (x != -1).any(dim=[3, 4])  # (B, O, T)
+            mask = mask.permute(0, 2, 1)  # (B, T, O)
         else:
-            temporal_pos_embed = temporal_pos_embed[:, :T, :, :, :]
-            
-        object_pos_embed = self.object_pos_embed
-        if object_pos_embed.shape[2] < O:
-            object_pos_embed = object_pos_embed[:, :, :1, :, :].repeat(1, 1, O, 1, 1)
-        else:
-            object_pos_embed = object_pos_embed[:, :, :O, :, :]
+            if mask.shape == (B, O, T):
+                mask = mask.permute(0, 2, 1)
         
-        if self.spatial_pos_embed is None or self.spatial_pos_embed.shape[3] != N_patches:
-            self.spatial_pos_embed = nn.Parameter(
-                torch.randn(1, 1, 1, N_patches, self.embed_dim)
-            ).to(x.device)
+        # Prepare input
+        x = x.permute(0, 2, 1, 3, 4)  # (B, T, O, H, W)
+        x = torch.where(x == -1, torch.zeros_like(x), x)
         
-        x = x + temporal_pos_embed + object_pos_embed + self.spatial_pos_embed
-
-        for block in self.transformer_blocks:
-            x = block(x)
-
-        x = x.permute(0, 1, 3, 2, 4)
-        x = self.object_pose_relation(x)
+        # Encode
+        x = rearrange(x, 'b t o h w -> (b t o) 1 h w')
+        x = self.pose_encoder(x)  # (B*T*O, D, 14, 14)
         
-        x = x.mean(dim=1)
-        x = x.mean(dim=1)
-        x = x.mean(dim=1)
+        # Get dimensions
+        _, D, H_feat, W_feat = x.shape
+        N = H_feat * W_feat
         
-        return x
+        # Reshape and add position embeddings
+        x = rearrange(x, 'bto d h w -> bto (h w) d')
+        x = x + self.pos_embed[:, :N, :]
+        x = rearrange(x, '(b t o) n d -> b t o n d', b=B, t=T, o=O)
+        
+        # Add temporal embeddings
+        # self.temporal_embed shape: (1, num_frames, 1, embed_dim)
+        # Need to expand to (B, T, O, N, D)
+        temporal_embed = self.temporal_embed[:, :T, :, :]  # (1, T, 1, D)
+        temporal_embed = temporal_embed.unsqueeze(2)  # (1, T, 1, 1, D)
+        temporal_embed = temporal_embed.expand(B, T, O, N, D)
+        x = x + temporal_embed
+        
+        # Add person embeddings  
+        # self.person_embed shape: (1, 1, in_channels, embed_dim)
+        # Need to expand to (B, T, O, N, D)
+        person_embed = self.person_embed[:, :, :O, :]  # (1, 1, O, D)
+        person_embed = person_embed.unsqueeze(3)  # (1, 1, O, 1, D)
+        person_embed = person_embed.expand(B, T, O, N, D)
+        x = x + person_embed
+        
+        # Apply mask
+        if mask is not None:
+            mask_expanded = mask.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, -1, N, D)
+            x = x * mask_expanded.float()
+        
+        # Process through blocks
+        for i, block in enumerate(self.blocks):
+            if self.use_gradient_checkpointing and self.training and i % 2 == 0:
+                x = gradient_checkpoint(block, x, mask, use_reentrant=False)
+            else:
+                x = block(x, mask)
+        
+        # Final pooling
+        # x is already pooled to (B, T, O, D) after first block
+        if x.dim() == 4:  # Already pooled
+            if mask is not None:
+                mask_float = mask.float()
+                x_sum = (x * mask_float.unsqueeze(-1)).sum(dim=[1, 2])
+                mask_count = mask_float.sum(dim=[1, 2], keepdim=True).clamp(min=1)
+                x_global = x_sum / mask_count.squeeze(-1)
+            else:
+                x_global = x.mean(dim=[1, 2])
+        else:  # Still has spatial dimension
+            x_pooled = x.mean(dim=3)  # Pool spatial first
+            if mask is not None:
+                mask_float = mask.float()
+                x_sum = (x_pooled * mask_float.unsqueeze(-1)).sum(dim=[1, 2])
+                mask_count = mask_float.sum(dim=[1, 2], keepdim=True).clamp(min=1)
+                x_global = x_sum / mask_count.squeeze(-1)
+            else:
+                x_global = x_pooled.mean(dim=[1, 2])
+        
+        # Output
+        x_out = self.norm(x_global)
+        x_out = self.head(x_out)
+        
+        return x_out
 
-    def save_gradients(self, grad):
-        self.gradients = grad
 
-    def get_gradients(self):
-        return self.gradients
-
-    def get_feature_maps(self):
-        return self.feature_maps
-
-
-def MTHPA_Tiny(num_frames=64, in_channels=32):
+# Model configurations
+def MTHPA_Tiny(num_frames=32, in_channels=32, patch_size=(16, 16)):
     return MTHPA(
         num_frames=num_frames,
         in_channels=in_channels,
-        embed_dim=192,
-        patch_size=(32, 32),  # Larger patch size for memory efficiency
-        num_heads=3,
-        num_layers=12,
-        num_object_layers=3,
-        mlp_dim=192*4,
+        embed_dim=256,
+        patch_size=patch_size,
+        num_heads=8,
+        num_layers=6,
+        mlp_ratio=2.5,
         use_gradient_checkpointing=True
     )
 
-def MTHPA_Small(num_frames=64, in_channels=32):
+def MTHPA_Small(num_frames=32, in_channels=32, patch_size=(16, 16)):
     return MTHPA(
         num_frames=num_frames,
         in_channels=in_channels,
         embed_dim=384,
-        patch_size=(32, 32),  # Larger patch size for memory efficiency
-        num_heads=6,
-        num_layers=12,
-        num_object_layers=6,
-        mlp_dim=384*4,
+        patch_size=patch_size,
+        num_heads=8,
+        num_layers=8,
+        mlp_ratio=2.5,
         use_gradient_checkpointing=True
     )
 
-def MTHPA_Base(num_frames=64, in_channels=32):
+def MTHPA_Base(num_frames=32, in_channels=32, patch_size=(16, 16)):
     return MTHPA(
         num_frames=num_frames,
         in_channels=in_channels,
-        embed_dim=768,
-        patch_size=(32, 32),  # Larger patch size for memory efficiency
+        embed_dim=512,  # Reduced for memory
+        patch_size=patch_size,
+        num_heads=8,
+        num_layers=10,  # Reduced for speed
+        mlp_ratio=3.0,
+        use_gradient_checkpointing=True
+    )
+
+def MTHPA_Large(num_frames=32, in_channels=32, patch_size=(16, 16)):
+    return MTHPA(
+        num_frames=num_frames,
+        in_channels=in_channels,
+        embed_dim=768,  # Reduced from 1536
+        patch_size=patch_size,
         num_heads=12,
-        num_layers=12,
-        num_object_layers=6,
-        mlp_dim=768*4,
-        use_gradient_checkpointing=True
-    )
-
-def MTHPA_Large(num_frames=64, in_channels=32):
-    return MTHPA(
-        num_frames=num_frames,
-        in_channels=in_channels,
-        embed_dim=1536,
-        patch_size=(56, 56),  # Even larger patch size for Large model
-        num_heads=16,
-        num_layers=24,
-        num_object_layers=24,
-        mlp_dim=1536*4,
+        num_layers=12,  # Reduced from 16
+        mlp_ratio=3.0,
         use_gradient_checkpointing=True
     )
