@@ -9,7 +9,7 @@ import numpy as np
 import gc
 
 
-class HeatmapMTHPA_Contrastive(pl.LightningModule):
+class HeatmapMTHPAContrastive(pl.LightningModule):
     def __init__(self, 
                  mthpa_model, 
                  lr=1e-4, 
@@ -18,7 +18,7 @@ class HeatmapMTHPA_Contrastive(pl.LightningModule):
                  temperature=0.07,
                  gradient_accumulation_steps=1,
                  use_mixed_precision=False,
-                 max_stored_features=1000):
+                 visualize_every_n_epochs=1):  # TSNE 시각화 주기
         super().__init__()
         self.mthpa_model = mthpa_model
         self.lr = lr
@@ -27,7 +27,7 @@ class HeatmapMTHPA_Contrastive(pl.LightningModule):
         self.temperature = temperature
         self.gradient_accumulation_steps = gradient_accumulation_steps
         self.use_mixed_precision = use_mixed_precision
-        self.max_stored_features = max_stored_features
+        self.visualize_every_n_epochs = visualize_every_n_epochs
         
         # Feature storage for visualization
         self.train_features = None
@@ -39,9 +39,9 @@ class HeatmapMTHPA_Contrastive(pl.LightningModule):
         
         os.makedirs(self.save_dir, exist_ok=True)
 
-    def forward(self, x):
+    def forward(self, x, mask=None):
         # x: (batch_size, time, objects, 224, 224)
-        return self.mthpa_model(x)
+        return self.mthpa_model(x, mask)
 
     def info_nce_loss(self, anchor, pair, labels, temperature):
         # Flatten features to (B, D)
@@ -67,8 +67,17 @@ class HeatmapMTHPA_Contrastive(pl.LightningModule):
         
         return loss
 
+    def compute_loss(self, anchor_feat, pair_feat, labels):
+        return self.info_nce_loss(anchor_feat, pair_feat, labels, self.temperature)
+
     def training_step(self, batch, batch_idx):
-        anchor, pair, labels = batch  # (B, T, O, 224, 224), (B, T, O, 224, 224), (B,)
+        # Unpack batch with masks
+        if len(batch) == 5:
+            anchor, pair, labels, anchor_mask, pair_mask = batch
+        else:
+            # Backward compatibility
+            anchor, pair, labels = batch
+            anchor_mask = pair_mask = None
         
         if self.gradient_accumulation_steps > 1:
             # Manual optimization
@@ -78,17 +87,17 @@ class HeatmapMTHPA_Contrastive(pl.LightningModule):
             if batch_idx % self.gradient_accumulation_steps == 0:
                 opt.zero_grad(set_to_none=True)
             
-            # Forward pass
+            # Forward pass with masks
             if self.use_mixed_precision:
                 with torch.cuda.amp.autocast():
-                    anchor_feat = self.mthpa_model(anchor)
-                    pair_feat = self.mthpa_model(pair)
-                    loss = self.info_nce_loss(anchor_feat, pair_feat, labels, self.temperature)
+                    anchor_feat = self.mthpa_model(anchor, anchor_mask)
+                    pair_feat = self.mthpa_model(pair, pair_mask)
+                    loss = self.compute_loss(anchor_feat, pair_feat, labels)
                     loss = loss / self.gradient_accumulation_steps
             else:
-                anchor_feat = self.mthpa_model(anchor)
-                pair_feat = self.mthpa_model(pair)
-                loss = self.info_nce_loss(anchor_feat, pair_feat, labels, self.temperature)
+                anchor_feat = self.mthpa_model(anchor, anchor_mask)
+                pair_feat = self.mthpa_model(pair, pair_mask)
+                loss = self.compute_loss(anchor_feat, pair_feat, labels)
                 loss = loss / self.gradient_accumulation_steps
             
             # Backward pass
@@ -103,44 +112,56 @@ class HeatmapMTHPA_Contrastive(pl.LightningModule):
             # Scale loss back for logging
             loss = loss * self.gradient_accumulation_steps
         else:
-            # Automatic optimization
+            # Automatic optimization with masks
             if self.use_mixed_precision:
                 with torch.cuda.amp.autocast():
-                    anchor_feat = self.mthpa_model(anchor)
-                    pair_feat = self.mthpa_model(pair)
-                    loss = self.info_nce_loss(anchor_feat, pair_feat, labels, self.temperature)
+                    anchor_feat = self.mthpa_model(anchor, anchor_mask)
+                    pair_feat = self.mthpa_model(pair, pair_mask)
+                    loss = self.compute_loss(anchor_feat, pair_feat, labels)
             else:
-                anchor_feat = self.mthpa_model(anchor)
-                pair_feat = self.mthpa_model(pair)
-                loss = self.info_nce_loss(anchor_feat, pair_feat, labels, self.temperature)
+                anchor_feat = self.mthpa_model(anchor, anchor_mask)
+                pair_feat = self.mthpa_model(pair, pair_mask)
+                loss = self.compute_loss(anchor_feat, pair_feat, labels)
+        
+        # Compute accuracy
+        with torch.no_grad():
+            anchor_norm = F.normalize(anchor_feat.detach().view(anchor_feat.size(0), -1), dim=-1)
+            pair_norm = F.normalize(pair_feat.detach().view(pair_feat.size(0), -1), dim=-1)
+            sim = torch.sum(anchor_norm * pair_norm, dim=-1)
+            pred = (sim > 0).float()
+            acc = (pred == labels).float().mean()
         
         # Logging
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, 
                  logger=True, batch_size=anchor.size(0), sync_dist=True)
+        self.log('train_acc', acc, on_step=True, on_epoch=True, prog_bar=True,
+                 logger=True, batch_size=anchor.size(0), sync_dist=True)
         
-        # Store features for visualization (limited)
-        if self.global_step % 10 == 0 or self.current_epoch == 0:  # Store less frequently
+        # 특정 epoch에만 feature 저장 (TSNE 시각화용)
+        if self.current_epoch % self.visualize_every_n_epochs == 0:
             with torch.no_grad():
-                feats = torch.cat([anchor_feat.detach().cpu(), pair_feat.detach().cpu()], dim=0)
-                labs = torch.cat([labels.cpu(), labels.cpu()], dim=0)
+                # Store only anchor features to save memory
+                anchor_flat = anchor_feat.detach().cpu().view(anchor_feat.size(0), -1)
+                batch_labels = labels.detach().cpu()
                 
-                # Limit stored features
-                if len(feats) > self.max_stored_features:
-                    indices = torch.randperm(len(feats))[:self.max_stored_features]
-                    feats = feats[indices]
-                    labs = labs[indices]
+                # Skip if batch is empty or features are invalid
+                if anchor_flat.size(0) == 0 or anchor_flat.size(1) == 0:
+                    return loss
                 
                 if self.train_features is None:
-                    self.train_features = (feats, labs)
+                    self.train_features = (anchor_flat, batch_labels)
                 else:
-                    # Concatenate and limit total size
-                    all_feats = torch.cat([self.train_features[0], feats], dim=0)
-                    all_labs = torch.cat([self.train_features[1], labs], dim=0)
-                    if len(all_feats) > self.max_stored_features:
-                        indices = torch.randperm(len(all_feats))[:self.max_stored_features]
-                        all_feats = all_feats[indices]
-                        all_labs = all_labs[indices]
-                    self.train_features = (all_feats, all_labs)
+                    # Append all features (no sampling)
+                    existing_features, existing_labels = self.train_features
+                    self.train_features = (
+                        torch.cat([existing_features, anchor_flat], dim=0),
+                        torch.cat([existing_labels, batch_labels], dim=0)
+                    )
+                    
+                    # 디버깅용 출력 (첫 epoch에서만)
+                    if self.current_epoch == 0 and batch_idx % 100 == 0:
+                        print(f"[Feature Storage] Epoch {self.current_epoch}, Batch {batch_idx}: "
+                              f"Total stored {self.train_features[0].size(0)} features")
         
         # Memory cleanup
         del anchor_feat, pair_feat
@@ -150,58 +171,77 @@ class HeatmapMTHPA_Contrastive(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        anchor, pair, labels = batch
+        # Unpack batch with masks
+        if len(batch) == 5:
+            anchor, pair, labels, anchor_mask, pair_mask = batch
+        else:
+            # Backward compatibility
+            anchor, pair, labels = batch
+            anchor_mask = pair_mask = None
         
         with torch.no_grad():
             if self.use_mixed_precision:
                 with torch.cuda.amp.autocast():
-                    anchor_feat = self.mthpa_model(anchor)
-                    pair_feat = self.mthpa_model(pair)
-                    loss = self.info_nce_loss(anchor_feat, pair_feat, labels, self.temperature)
+                    anchor_feat = self.mthpa_model(anchor, anchor_mask)
+                    pair_feat = self.mthpa_model(pair, pair_mask)
+                    loss = self.compute_loss(anchor_feat, pair_feat, labels)
             else:
-                anchor_feat = self.mthpa_model(anchor)
-                pair_feat = self.mthpa_model(pair)
-                loss = self.info_nce_loss(anchor_feat, pair_feat, labels, self.temperature)
+                anchor_feat = self.mthpa_model(anchor, anchor_mask)
+                pair_feat = self.mthpa_model(pair, pair_mask)
+                loss = self.compute_loss(anchor_feat, pair_feat, labels)
+            
+            # Compute accuracy
+            anchor_norm = F.normalize(anchor_feat.view(anchor_feat.size(0), -1), dim=-1)
+            pair_norm = F.normalize(pair_feat.view(pair_feat.size(0), -1), dim=-1)
+            sim = torch.sum(anchor_norm * pair_norm, dim=-1)
+            pred = (sim > 0).float()
+            acc = (pred == labels).float().mean()
         
         self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True, 
                  logger=True, batch_size=anchor.size(0), sync_dist=True)
+        self.log('val_acc', acc, on_step=False, on_epoch=True, prog_bar=True,
+                 logger=True, batch_size=anchor.size(0), sync_dist=True)
         
-        # Store features for visualization (limited to first few batches)
-        if batch_idx < 10:  # Only first 10 batches
-            feats = torch.cat([anchor_feat.cpu(), pair_feat.cpu()], dim=0)
-            labs = torch.cat([labels.cpu(), labels.cpu()], dim=0)
-            
-            if self.val_features is None:
-                self.val_features = (feats, labs)
-            else:
-                all_feats = torch.cat([self.val_features[0], feats], dim=0)
-                all_labs = torch.cat([self.val_features[1], labs], dim=0)
-                # Limit total stored features
-                if len(all_feats) > self.max_stored_features:
-                    all_feats = all_feats[:self.max_stored_features]
-                    all_labs = all_labs[:self.max_stored_features]
-                self.val_features = (all_feats, all_labs)
+        # 특정 epoch에만 validation feature 저장
+        if self.current_epoch % self.visualize_every_n_epochs == 0:
+            with torch.no_grad():
+                # Store only anchor features
+                anchor_flat = anchor_feat.cpu().view(anchor_feat.size(0), -1)
+                
+                if self.val_features is None:
+                    self.val_features = (anchor_flat, labels.cpu())
+                else:
+                    # Append all features
+                    all_feats, all_labs = self.val_features
+                    self.val_features = (
+                        torch.cat([all_feats, anchor_flat], dim=0),
+                        torch.cat([all_labs, labels.cpu()], dim=0)
+                    )
         
         # Memory cleanup
         del anchor_feat, pair_feat
-        torch.cuda.empty_cache()
+        if batch_idx % 20 == 0:
+            torch.cuda.empty_cache()
         
         return loss
 
     def on_train_epoch_end(self):
-        # Visualize features
-        if self.train_features is not None:
+        # Visualize features only on specific epochs
+        if self.current_epoch % self.visualize_every_n_epochs == 0 and self.train_features is not None:
             try:
                 features, labels = self.train_features
-                print("Num train features for t-SNE:", features.shape[0])
-                if features.shape[0] < 5:
-                    print(f"[TSNE] Skipping visualization for train at epoch {self.current_epoch} - too few samples")
-                    return
-                self.visualize_tsne(features, labels, "train", self.current_epoch)
+                print(f"[TSNE] Train features shape: {features.shape} (full training set)")
+                if features.shape[0] >= 10:
+                    self.visualize_tsne(features, labels, "train", self.current_epoch)
+                else:
+                    print(f"[TSNE] Skipping visualization - too few samples ({features.shape[0]})")
             except Exception as e:
                 print(f"Failed to visualize train features: {e}")
             finally:
                 self.train_features = None
+        elif self.train_features is not None:
+            # Clear features if not visualizing this epoch
+            self.train_features = None
         
         # Save model periodically
         if self.current_epoch % 5 == 0:
@@ -212,21 +252,29 @@ class HeatmapMTHPA_Contrastive(pl.LightningModule):
         torch.cuda.empty_cache()
 
     def on_validation_epoch_end(self):
-        # Visualize features
-        if self.val_features is not None:
+        # Visualize features only on specific epochs
+        if self.current_epoch % self.visualize_every_n_epochs == 0 and self.val_features is not None:
             try:
                 features, labels = self.val_features
-                self.visualize_tsne(features, labels, "val", self.current_epoch)
+                print(f"[TSNE] Val features shape: {features.shape} (full validation set)")
+                if features.shape[0] >= 10:
+                    self.visualize_tsne(features, labels, "val", self.current_epoch)
+                else:
+                    print(f"[TSNE] Skipping visualization - too few samples ({features.shape[0]})")
             except Exception as e:
                 print(f"Failed to visualize val features: {e}")
             finally:
                 self.val_features = None
+        elif self.val_features is not None:
+            # Clear features if not visualizing this epoch
+            self.val_features = None
         
         # Memory cleanup
         gc.collect()
         torch.cuda.empty_cache()
 
     def on_train_start(self):
+        # Initialize with a high value for val_loss
         self.log('val_loss', float('inf'), prog_bar=True, logger=True, sync_dist=True)
 
     def visualize_tsne(self, features, labels, stage, epoch):
@@ -234,64 +282,74 @@ class HeatmapMTHPA_Contrastive(pl.LightningModule):
         try:
             features = features.numpy()
             labels = labels.numpy()
+            features = features.reshape(features.shape[0], -1)
             
-            # Ensure features are 2D
-            if features.ndim > 2:
-                features = features.reshape(features.shape[0], -1)
-            
-            # Check if we have enough samples
-            if features.shape[0] < 10:
-                print(f"[TSNE] Skipping visualization for {stage} at epoch {epoch} - too few samples")
+            if features.shape[1] < 2:
+                print(f"[TSNE] Skipping TSNE visualization for {stage} at epoch {epoch} because feature dim < 2")
                 return
-            
+                
             num_samples = features.shape[0]
-            
-            # Subsample if too many features for TSNE
-            if num_samples > 500:
-                indices = np.random.choice(num_samples, 500, replace=False)
-                features = features[indices]
-                labels = labels[indices]
-                num_samples = 500
-            
-            # Calculate perplexity
-            tsne_perplexity = min(30, max(5, (num_samples - 1) // 3))
+            # perplexity를 샘플 수에 맞게 조정 (최대 50)
+            tsne_perplexity = min(50, max(5, num_samples // 4))
             
             if num_samples <= tsne_perplexity:
-                print(f"Skipping TSNE visualization for {stage} at epoch {epoch} due to insufficient samples.")
-                return
+                tsne_perplexity = max(2, num_samples - 1)
+                print(f"[TSNE] Adjusted perplexity to {tsne_perplexity} due to small sample size")
             
-            # Run TSNE
-            tsne = TSNE(n_components=2, perplexity=tsne_perplexity, random_state=42, n_jobs=1)
+            print(f"[TSNE] Creating visualization for {stage} at epoch {epoch} with {num_samples} samples (perplexity={tsne_perplexity})")
+            
+            # 더 안정적인 TSNE 설정
+            tsne = TSNE(
+                n_components=2, 
+                perplexity=tsne_perplexity, 
+                random_state=42,
+                n_iter=1000,  # 더 많은 iteration으로 수렴 개선
+                init='pca',   # PCA 초기화로 안정성 향상
+                learning_rate='auto'
+            )
             tsne_results = tsne.fit_transform(features)
 
             # Plot with color by label
-            plt.figure(figsize=(8, 6))
-            for label, color, name in zip([0, 1], ['blue', 'red'], ['normal', 'abnormal']):
+            plt.figure(figsize=(10, 6))
+            
+            # 클래스별 샘플 수 계산
+            unique_labels, counts = np.unique(labels, return_counts=True)
+            label_info = dict(zip(unique_labels, counts))
+            
+            for label, color, name in zip([0, 1], ['green', 'red'], ['normal', 'abnormal']):
                 idx = labels == label
-                if idx.any():
+                if np.any(idx):
+                    count = label_info.get(label, 0)
                     plt.scatter(tsne_results[idx, 0], tsne_results[idx, 1], 
-                              c=color, label=name, alpha=0.6, s=20)
+                              c=color, label=f'{name} (n={count})', 
+                              alpha=0.7, s=30, edgecolors='black', linewidth=0.5)
             
             plt.legend()
-            plt.title(f't-SNE {stage} Epoch {epoch}')
+            plt.title(f't-SNE {stage} Epoch {epoch} (Total: {num_samples} samples)')
+            plt.xlabel('t-SNE Component 1')
+            plt.ylabel('t-SNE Component 2')
+            plt.grid(True, alpha=0.3)
             
-            # Save figure
-            tsne_dir = os.path.join(self.save_dir, 'tsne_visualization')
+            # Save path
+            tsne_dir = os.path.join(self.save_dir, f'tsne_visualization')
             os.makedirs(tsne_dir, exist_ok=True)
             tsne_path = os.path.join(tsne_dir, f'tsne_{stage}_epoch_{epoch}.png')
-            plt.savefig(tsne_path, dpi=100)
+            plt.savefig(tsne_path, dpi=150, bbox_inches='tight')
             plt.close()
 
             # Log to wandb if available
-            if hasattr(self, 'logger') and self.logger is not None:
-                if hasattr(self.logger, 'experiment') and self.logger.experiment is not None:
-                    self.logger.experiment.log({
-                        f"tsne_{stage}": wandb.Image(tsne_path), 
-                        "epoch": epoch
-                    })
+            if hasattr(self, 'logger') and hasattr(self.logger, 'experiment'):
+                try:
+                    self.logger.experiment.log({f"{stage}_tsne": wandb.Image(tsne_path)})
+                except Exception as e:
+                    print(f"[TSNE] Failed to log to wandb: {e}")
+                
+            print(f"[TSNE] Saved visualization to: {tsne_path}")
                     
         except Exception as e:
-            print(f"TSNE visualization failed: {e}")
+            print(f"[TSNE] Visualization failed: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
             plt.close('all')
             gc.collect()
@@ -301,17 +359,25 @@ class HeatmapMTHPA_Contrastive(pl.LightningModule):
         try:
             model_path = os.path.join(self.save_dir, f'epoch{epoch_label:03d}.ckpt')
             self.trainer.save_checkpoint(model_path)
+            print(f"Saved checkpoint: {model_path}")
         except Exception as e:
             print(f"Failed to save checkpoint: {e}")
 
     def on_save_checkpoint(self, checkpoint):
+        # Save model state dict
         checkpoint['model_state_dict'] = self.mthpa_model.state_dict()
+        # Save additional info
+        checkpoint['epoch'] = self.current_epoch
+        checkpoint['global_step'] = self.global_step
 
     def on_load_checkpoint(self, checkpoint):
+        # Load model state dict
         if 'model_state_dict' in checkpoint:
             self.mthpa_model.load_state_dict(checkpoint['model_state_dict'])
+            print(f"Loaded model from checkpoint (epoch {checkpoint.get('epoch', 'unknown')})")
 
     def configure_optimizers(self):
+        # Create optimizer
         optimizer = torch.optim.AdamW(
             self.parameters(), 
             lr=self.lr, 
@@ -320,6 +386,7 @@ class HeatmapMTHPA_Contrastive(pl.LightningModule):
             eps=1e-8
         )
         
+        # Create scheduler
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer, 
             T_max=self.trainer.max_epochs if hasattr(self, 'trainer') and self.trainer else 100, 
