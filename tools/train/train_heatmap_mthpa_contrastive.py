@@ -14,7 +14,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor, Ca
 from pytorch_lightning.strategies import DDPStrategy
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from models.lightning.heatmap_mthpa_contrastive import HeatmapMTHPA_Contrastive
+from models.lightning.heatmap_mthpa_contrastive import HeatmapMTHPAContrastive
 from util.file import get_unique_proj_dir_name
 from models.dataset.h5_heatmap_contrastive_dataset import get_transform, contrastive_collate_fn, HDF5ContrastiveDataset, SmallHDF5ContrastiveDataset
 from models.transformer.mthpa import MTHPA_Base, MTHPA_Large, MTHPA_Small, MTHPA_Tiny
@@ -34,11 +34,6 @@ class MemoryMonitorCallback(Callback):
             allocated = torch.cuda.memory_allocated() / 1024**3
             reserved = torch.cuda.memory_reserved() / 1024**3
             max_allocated = torch.cuda.max_memory_allocated() / 1024**3
-            
-            # print(f"[Step {trainer.global_step}] GPU Memory - "
-            #       f"Allocated: {allocated:.2f}GB, "
-            #       f"Reserved: {reserved:.2f}GB, "
-            #       f"Peak: {max_allocated:.2f}GB")
             
             # Clear cache periodically
             if batch_idx % (self.log_interval * 5) == 0:
@@ -70,7 +65,18 @@ def create_mthpa_model(model_type, num_frames, in_channels):
     if model_type not in model_dict:
         raise ValueError(f"Unknown model type: {model_type}")
     
-    return model_dict[model_type](num_frames=num_frames, in_channels=in_channels)
+    print(f"\n[INFO] Creating MTHPA model:")
+    print(f"  • Model type: {model_type}")
+    print(f"  • Number of frames: {num_frames}")
+    print(f"  • Input channels: {in_channels}")
+    
+    model = model_dict[model_type](num_frames=num_frames, in_channels=in_channels,)
+    
+    # Verify model configuration
+    print(f"  • Model temporal embed shape: {model.temporal_embed.shape}")
+    print(f"  • Expected temporal dim: {num_frames}")
+    
+    return model
 
 
 def estimate_memory_usage(args, model, in_channels):
@@ -158,12 +164,6 @@ def print_model_config(args, mthpa_model, in_channels, memory_estimate=None):
     print(f"  • Total Parameters: {total_params:,} ({total_params/1e6:.2f}M)")
     print(f"  • Trainable Parameters: {trainable_params:,}")
     
-    # Model architecture details
-    print(f"  • Embedding Dimension: {mthpa_model.embed_dim}")
-    print(f"  • Patch Size: {mthpa_model.patch_size}")
-    print(f"  • Number of Transformer Layers: {len(mthpa_model.transformer_blocks)}")
-    print(f"  • Number of Attention Heads: {mthpa_model.transformer_blocks[0].temporal_attn.attention.num_heads}")
-    
     # Training configuration
     print("\n🚀 TRAINING CONFIGURATION:")
     print(f"  • Batch Size: {args.batch_size}")
@@ -174,6 +174,7 @@ def print_model_config(args, mthpa_model, in_channels, memory_estimate=None):
     print(f"  • Weight Decay: {args.wd}")
     print(f"  • Max Epochs: {args.max_epochs}")
     print(f"  • Validation Every N Epochs: {args.val_epochs}")
+    print(f"  • TSNE Visualization Every N Epochs: {args.visualize_every_n_epochs}")
     print(f"  • Number of Workers: {args.num_workers}")
     print(f"  • GPUs: {args.gpus}")
     print(f"  • Mixed Precision (FP16): {getattr(args, 'use_fp16', False)}")
@@ -212,6 +213,8 @@ def main():
     
     # Model configuration
     parser.add_argument('--T', type=int, default=16, help="Number of frames")
+    parser.add_argument('--auto-detect-frames', action='store_true',
+                        help="Automatically detect the number of frames from data")
     parser.add_argument('--model-type', type=str, default='tiny', 
                         choices=['tiny', 'small', 'base', 'large'], 
                         help='MTHPA model type')
@@ -222,6 +225,8 @@ def main():
                         help="Gradient accumulation steps (for memory efficiency)")
     parser.add_argument('--max-epochs', type=int, default=200, help="Maximum number of epochs")
     parser.add_argument('--val-epochs', type=int, default=5, help="Validation epochs")
+    parser.add_argument('--visualize-every-n-epochs', type=int, default=5, 
+                        help="Visualize TSNE every N epochs")
     parser.add_argument('--lr', type=float, default=0.0001, help="Learning rate")
     parser.add_argument('--wd', type=float, default=0.000005, help="Weight decay")
     parser.add_argument('--use-fp16', action='store_true', 
@@ -305,6 +310,72 @@ def main():
     train_video_list_csv = os.path.join(args.dataset_dir, f"train_contrastive_heatmap_f{args.T}_video_list.csv")
     test_contrastive_pairs_csv = os.path.join(args.dataset_dir, f"test_contrastive_heatmap_f{args.T}_contrastive_pairs.csv")
     test_video_list_csv = os.path.join(args.dataset_dir, f"test_contrastive_heatmap_f{args.T}_video_list.csv")
+    
+    # For auto-detect, try to find any h5 file first
+    if args.auto_detect_frames and is_main_process:
+        if not os.path.exists(train_contrastive_h5_file_path):
+            print(f"\n[INFO] File not found with T={args.T}, searching for alternatives...")
+            import glob
+            h5_files = glob.glob(os.path.join(args.dataset_dir, "train_contrastive_heatmap_f*.h5"))
+            if h5_files:
+                # Use the first found file
+                train_contrastive_h5_file_path = h5_files[0]
+                print(f"  • Found: {os.path.basename(train_contrastive_h5_file_path)}")
+                
+                # Extract frame number from filename
+                import re
+                match = re.search(r'_f(\d+)\.h5', train_contrastive_h5_file_path)
+                if match:
+                    file_frames = int(match.group(1))
+                    # Update all paths with the correct frame number
+                    args.T = file_frames
+                    train_contrastive_h5_file_path = os.path.join(args.dataset_dir, f"train_contrastive_heatmap_f{args.T}.h5")
+                    test_contrastive_h5_file_path = os.path.join(args.dataset_dir, f"test_contrastive_heatmap_f{args.T}.h5")
+                    train_contrastive_pairs_csv = os.path.join(args.dataset_dir, f"train_contrastive_heatmap_f{args.T}_contrastive_pairs.csv")
+                    train_video_list_csv = os.path.join(args.dataset_dir, f"train_contrastive_heatmap_f{args.T}_video_list.csv")
+                    test_contrastive_pairs_csv = os.path.join(args.dataset_dir, f"test_contrastive_heatmap_f{args.T}_contrastive_pairs.csv")
+                    test_video_list_csv = os.path.join(args.dataset_dir, f"test_contrastive_heatmap_f{args.T}_video_list.csv")
+                    print(f"  • Updated T to {args.T} based on filename")
+    
+    # Auto-detect frame count if requested (moved after path setup)
+    if args.auto_detect_frames and is_main_process and os.path.exists(train_contrastive_h5_file_path):
+        print("\n[INFO] Auto-detecting actual frame count from data content...")
+        try:
+            import h5py
+            with h5py.File(train_contrastive_h5_file_path, 'r') as f:
+                # Get first video key
+                first_key = list(f['videos'].keys())[0]
+                data_shape = f['videos'][first_key].shape
+                detected_frames = data_shape[0]
+                
+                if detected_frames != args.T:
+                    print(f"  • Data contains {detected_frames} frames, but file/args suggest {args.T} frames")
+                    print(f"  • Keeping T={args.T} (data will be {'cropped' if detected_frames > args.T else 'padded'})")
+                else:
+                    print(f"  • Data contains {detected_frames} frames, matches expected T={args.T}")
+        except Exception as e:
+            print(f"  • Could not read frame count from data: {e}")
+    
+    # Check if files exist after all adjustments
+    if is_main_process and not os.path.exists(train_contrastive_h5_file_path):
+        print(f"\n⚠️  Expected file not found: {train_contrastive_h5_file_path}")
+        print(f"Available h5 files in {args.dataset_dir}:")
+        try:
+            import glob
+            h5_files = glob.glob(os.path.join(args.dataset_dir, "*.h5"))
+            for f in sorted(h5_files):
+                fname = os.path.basename(f)
+                print(f"  - {fname}")
+                # Try to extract frame number from filename
+                import re
+                match = re.search(r'_f(\d+)\.h5', fname)
+                if match:
+                    frames = match.group(1)
+                    print(f"    → Appears to have {frames} frames, use --T {frames}")
+        except:
+            pass
+        print("\n💡 Make sure your --T value matches the frame number in your data files!")
+        sys.exit(1)
 
     # Determine number of channels based on dataset
     channel_map = {
@@ -314,7 +385,7 @@ def main():
     }
     in_channels = channel_map.get(args.dataset, 32)
 
-    # Create datasets
+    # Create datasets with auto frame detection
     if args.use_small_dataset:
         # Use small dataset for testing
         train_contrastive_dataset = SmallHDF5ContrastiveDataset(
@@ -324,7 +395,7 @@ def main():
             max_length=args.T,
             transform=get_transform(),
             subset_size=32,
-            depth=in_channels
+            depth=in_channels,
         )
         test_contrastive_dataset = SmallHDF5ContrastiveDataset(
             test_contrastive_h5_file_path,
@@ -333,7 +404,7 @@ def main():
             max_length=args.T,
             transform=get_transform(),
             subset_size=32,
-            depth=in_channels
+            depth=in_channels,
         )
     else:
         # Use full dataset
@@ -343,7 +414,9 @@ def main():
             train_video_list_csv,
             max_length=args.T,
             transform=get_transform(),
-            depth=in_channels
+            log=is_main_process,
+            depth=in_channels,
+            cache_size=0,  # Disable caching by default
         )
         test_contrastive_dataset = HDF5ContrastiveDataset(
             test_contrastive_h5_file_path,
@@ -351,8 +424,39 @@ def main():
             test_video_list_csv,
             max_length=args.T,
             transform=get_transform(),
-            depth=in_channels
+            log=is_main_process,
+            depth=in_channels,
+            cache_size=0,  # Disable caching by default
         )
+    
+    # Verify data dimensions by loading one sample
+    if is_main_process:
+        print("\n[INFO] Verifying data dimensions...")
+        try:
+            sample_data = train_contrastive_dataset[0]
+            anchor_shape = sample_data[0].shape
+            print(f"  • Sample anchor shape: {anchor_shape}")
+            print(f"  • Data format: (O={anchor_shape[0]}, T={anchor_shape[1]}, H={anchor_shape[2]}, W={anchor_shape[3]})")
+            
+            # Check the original data before padding/cropping
+            import h5py
+            with h5py.File(train_contrastive_h5_file_path, 'r') as f:
+                # Get first video key
+                first_key = list(f['videos'].keys())[0]
+                original_shape = f['videos'][first_key].shape
+                print(f"  • Original H5 data shape: {original_shape} (T={original_shape[0]}, O={original_shape[1]}, H={original_shape[2]}, W={original_shape[3]})")
+            
+            if original_shape[0] != args.T:
+                print(f"\n⚠️  WARNING: H5 file contains {original_shape[0]} frames but --T is set to {args.T}")
+                print(f"   The dataset will {'crop' if original_shape[0] > args.T else 'pad'} the data to match --T={args.T}")
+                if original_shape[0] > args.T:
+                    print(f"   Original {original_shape[0]} frames will be cropped to {args.T} frames")
+                else:
+                    print(f"   Original {original_shape[0]} frames will be padded to {args.T} frames")
+        except Exception as e:
+            print(f"  • Could not load sample: {e}")
+            import traceback
+            traceback.print_exc()
 
     # Create dataloaders with memory-efficient settings
     train_contrastive_dataloader = DataLoader(
@@ -379,6 +483,24 @@ def main():
 
     # Create model
     mthpa_model = create_mthpa_model(args.model_type, args.T, in_channels)
+    
+    # Verify model configuration
+    if is_main_process:
+        print(f"\n🔍 MODEL VERIFICATION:")
+        print(f"  • Model num_frames: {args.T}")
+        print(f"  • Expected data files pattern: *_f{args.T}.h5")
+        print(f"  • Checking data files...")
+        
+        # Check if files exist
+        if not os.path.exists(train_contrastive_h5_file_path):
+            print(f"  ⚠️  WARNING: Training file not found: {train_contrastive_h5_file_path}")
+        else:
+            print(f"  ✓ Training file found: {train_contrastive_h5_file_path}")
+            
+        if not os.path.exists(test_contrastive_h5_file_path):
+            print(f"  ⚠️  WARNING: Test file not found: {test_contrastive_h5_file_path}")
+        else:
+            print(f"  ✓ Test file found: {test_contrastive_h5_file_path}")
 
     # Estimate memory usage
     memory_estimate = estimate_memory_usage(args, mthpa_model, in_channels)
@@ -396,18 +518,18 @@ def main():
                 print(f"   Consider reducing batch size or using gradient accumulation.")
 
     # Create Lightning module
-    heatmap_mthpa_model = HeatmapMTHPA_Contrastive(
+    heatmap_mthpa_model = HeatmapMTHPAContrastive(
         mthpa_model=mthpa_model,
         lr=args.lr,
         wd=args.wd,
         save_dir=project_dir,
         gradient_accumulation_steps=args.gradient_accumulation,
         use_mixed_precision=args.use_fp16,
-        max_stored_features=1000  # Limit stored features for visualization
+        visualize_every_n_epochs=args.visualize_every_n_epochs
     )
 
     # Setup logging
-    wandb_logger = WandbLogger(project=project_name, name=run_name, id=args.run_id, resume="allow")
+    # wandb_logger = WandbLogger(project=project_name, name=run_name, id=args.run_id, resume="allow")
     
     # Setup callbacks
     checkpoint_callback = ModelCheckpoint(
@@ -441,12 +563,12 @@ def main():
         max_epochs=args.max_epochs,
         accelerator='gpu',
         devices=len(args.gpus.split(',')),
-        strategy=DDPStrategy(find_unused_parameters=True),
+        strategy=DDPStrategy(find_unused_parameters=True),  # Changed from True to False
         precision=16 if args.use_fp16 else 32,
         accumulate_grad_batches=args.gradient_accumulation,
         gradient_clip_val=1.0,
         check_val_every_n_epoch=args.val_epochs,
-        logger=[wandb_logger],
+        # logger=[wandb_logger],
         callbacks=callbacks,
         log_every_n_steps=10,
         enable_checkpointing=True,
