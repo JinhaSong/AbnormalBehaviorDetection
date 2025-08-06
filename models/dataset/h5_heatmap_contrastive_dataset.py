@@ -4,20 +4,21 @@ import gc
 
 import torch
 import torch.nn.functional as F
-from torch.utils.data import Dataset, default_collate
+from torch.utils.data import Dataset, DataLoader, default_collate
 from torchvision.transforms import Compose, ToTensor, Normalize
 import pandas as pd
 import numpy as np
 
 
 class HDF5ContrastiveDataset(Dataset):
-    def __init__(self, h5_file, contrastive_pairs_csv, video_list_csv, max_length, transform=None, log=False, depth=32, cache_size=0):
+    def __init__(self, h5_file, contrastive_pairs_csv, video_list_csv, max_length, transform=None, log=False, depth=32, cache_size=0, training=True):
         super().__init__()
         self.h5_file = h5_file
         self.transform = transform
         self.max_length = max_length
         self.depth = depth
         self.cache_size = cache_size
+        self.training = training
         
         # Read contrastive pairs CSV
         self.pairs_df = pd.read_csv(contrastive_pairs_csv)
@@ -143,7 +144,8 @@ class HDF5ContrastiveDataset(Dataset):
         anchor_mask = anchor_mask.transpose(0, 1)  # (C, T) -> (T, C)
         pair_mask = pair_mask.transpose(0, 1)  # (C, T) -> (T, C)
         
-        return anchor, pair, torch.tensor(label, dtype=torch.float32), anchor_mask, pair_mask
+        # Return anchor_idx as integer for uniqueness tracking
+        return anchor, pair, torch.tensor(label, dtype=torch.float32), int(anchor_idx), anchor_mask, pair_mask
 
     def get_cache_stats(self):
         """Get cache statistics"""
@@ -160,12 +162,13 @@ class HDF5ContrastiveDataset(Dataset):
 
 
 class SmallHDF5ContrastiveDataset(Dataset):
-    def __init__(self, h5_file, contrastive_pairs_csv, video_list_csv, max_length, transform=None, subset_size=10, depth=32):
+    def __init__(self, h5_file, contrastive_pairs_csv, video_list_csv, max_length, transform=None, subset_size=10, depth=32, training=True):
         self.h5_file = h5_file
         self.transform = transform
         self.max_length = max_length
         self.depth = depth
         self.subset_size = subset_size
+        self.training = training
         
         # Read contrastive pairs CSV
         self.pairs_df = pd.read_csv(contrastive_pairs_csv)
@@ -265,7 +268,8 @@ class SmallHDF5ContrastiveDataset(Dataset):
             anchor = torch.nan_to_num(anchor, nan=0.0)
             pair = torch.nan_to_num(pair, nan=0.0)
         
-        return anchor, pair, torch.tensor(label, dtype=torch.float32), anchor_mask, pair_mask
+        # Return anchor_idx as integer for uniqueness tracking
+        return anchor, pair, torch.tensor(label, dtype=torch.float32), int(anchor_idx), anchor_mask, pair_mask
 
 
 def get_transform():
@@ -276,13 +280,14 @@ def get_transform():
 
 
 def contrastive_collate_fn(batch):
-    """Custom collate function for contrastive learning with masks"""
-    anchors, pairs, labels, anchor_masks, pair_masks = zip(*batch)
+    """Custom collate function for contrastive learning with masks and anchor indices"""
+    anchors, pairs, labels, anchor_indices, anchor_masks, pair_masks = zip(*batch)
     
     # Stack tensors
     anchors = torch.stack(anchors)
     pairs = torch.stack(pairs)
     labels = torch.tensor(labels)
+    anchor_indices = torch.tensor(anchor_indices)  # Convert to tensor
     anchor_masks = torch.stack(anchor_masks)
     pair_masks = torch.stack(pair_masks)
     
@@ -290,10 +295,11 @@ def contrastive_collate_fn(batch):
     anchors = anchors.contiguous()
     pairs = pairs.contiguous()
     labels = labels.contiguous()
+    anchor_indices = anchor_indices.contiguous()
     anchor_masks = anchor_masks.contiguous()
     pair_masks = pair_masks.contiguous()
     
-    return anchors, pairs, labels, anchor_masks, pair_masks
+    return anchors, pairs, labels, anchor_indices, anchor_masks, pair_masks
 
 def triplet_collate_fn(batch):
     """Custom collate function for triplet learning"""

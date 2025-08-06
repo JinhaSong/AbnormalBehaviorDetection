@@ -396,6 +396,7 @@ def main():
             transform=get_transform(),
             subset_size=32,
             depth=in_channels,
+            training=True  # Add training mode
         )
         test_contrastive_dataset = SmallHDF5ContrastiveDataset(
             test_contrastive_h5_file_path,
@@ -405,6 +406,7 @@ def main():
             transform=get_transform(),
             subset_size=32,
             depth=in_channels,
+            training=False  # Validation mode
         )
     else:
         # Use full dataset
@@ -417,6 +419,7 @@ def main():
             log=is_main_process,
             depth=in_channels,
             cache_size=0,  # Disable caching by default
+            training=True  # Add training mode
         )
         test_contrastive_dataset = HDF5ContrastiveDataset(
             test_contrastive_h5_file_path,
@@ -427,6 +430,7 @@ def main():
             log=is_main_process,
             depth=in_channels,
             cache_size=0,  # Disable caching by default
+            training=False  # Validation mode
         )
     
     # Verify data dimensions by loading one sample
@@ -525,11 +529,11 @@ def main():
         save_dir=project_dir,
         gradient_accumulation_steps=args.gradient_accumulation,
         use_mixed_precision=args.use_fp16,
-        visualize_every_n_epochs=args.visualize_every_n_epochs
+        visualize_every_n_epochs=1
     )
 
     # Setup logging
-    # wandb_logger = WandbLogger(project=project_name, name=run_name, id=args.run_id, resume="allow")
+    wandb_logger = WandbLogger(project=project_name, name=run_name, id=args.run_id, resume="allow")
     
     # Setup callbacks
     checkpoint_callback = ModelCheckpoint(
@@ -568,7 +572,7 @@ def main():
         accumulate_grad_batches=args.gradient_accumulation,
         gradient_clip_val=1.0,
         check_val_every_n_epoch=args.val_epochs,
-        # logger=[wandb_logger],
+        logger=[wandb_logger],
         callbacks=callbacks,
         log_every_n_steps=10,
         enable_checkpointing=True,
